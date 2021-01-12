@@ -1,0 +1,44 @@
+body{
+    background-color: #DDD;
+    padding: 0;
+    margin: 0;
+}
+
+
+.container{
+    background-color: #EEE;
+    margin: 0 auto;
+    box-shadow: 0 0 30px rgba(0,0,0,0.3);
+    font-size: 2rem;
+}
+
+.container header{
+    font-size: 4rem;
+    text-align: center;
+    background-color: #444;
+    color: #FFF;
+    margin-bottom: 20px;
+    font-family: Verdana;
+    padding: 5px 0;
+}
+
+.content{
+    padding: 1rem;
+    position: relative;
+}
+
+.clear{
+    clear: both;
+}
+
+.row{
+    clear: both;
+}
+
+.column{
+    float: left;
+}
+
+
+
+
