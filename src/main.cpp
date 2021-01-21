@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - prihdmitriy@yandex.ru
+Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
