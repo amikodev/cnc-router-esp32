@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - prihdmitriy@yandex.ru
+Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -176,6 +176,11 @@ void CncRouter::gcodeProcessFrame(GcodeFrameSubData *frame, uint8_t frameLength)
 
     // printf("progParams.runType: %d, targetX: %f, targetY: %f \n", progParams.runType, targetX, targetY);
 
+    if(progParams.pause > 0.0){
+        // пауза выполнения программы
+        gcodeProcess_pause();
+    }
+
     if(progParams.runType == RUN_FAST){                         // быстрое линейное перемещение
         gcodeProcess_drawLine(targetX, targetY, targetZ);
         gcodeRecalcCoords(targetX, targetY, targetZ);
@@ -295,7 +300,19 @@ bool CncRouter::gcodeProcessCommand_G(uint8_t value, GcodeFrameSubData *frame, u
             }
             break;
         case 4:     // G04 - Задержка выполнения программы, способ задания величины задержки зависит от реализации системы управления, P обычно задает паузу в миллисекундах, X — в секундах.
-            processThisCommand = false;
+            for(uint8_t i=0; i<frameLength; i++){
+                GcodeFrameSubData *el = frame+i;
+                switch(el->letter){
+                    case GCODE_LETTER_P:        // пауза в миллисекундах
+                        progParams.pause = el->value/1000;
+                        break;
+                    case GCODE_LETTER_X:        // пауза в секундах
+                        progParams.pause = el->value;
+                        break;
+                    default:
+                        break;
+                }
+            }
             break;
         case 10:    // G10 - Переключение абсолютной системы координат
         case 15:    // G15 - Отмена полярной системы координат
@@ -314,12 +331,50 @@ bool CncRouter::gcodeProcessCommand_G(uint8_t value, GcodeFrameSubData *frame, u
         case 30:    // G30 - Поднятие по оси Z на точку смены инструмента
         case 31:    // G31 - Подача до пропуска
         case 40:    // G40 - Отмена компенсации радиуса инструмента
+            progParams.compensationRadius.type = COMPENSATION_NONE;
+            progParams.compensationRadius.value = 0.0;
+            break;
         case 41:    // G41 - Компенсировать радиус инструмента слева от траектории
+            progParams.compensationRadius.type = COMPENSATION_LEFT;
+            progParams.compensationRadius.value = 1.0;      // радиус по умолчанию
+            for(uint8_t i=0; i<frameLength; i++){
+                GcodeFrameSubData *el = frame+i;
+                switch(el->letter){
+                    case GCODE_LETTER_R:        // радиус
+                        progParams.compensationRadius.value = el->value;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            break;
         case 42:    // G42 - Компенсировать радиус инструмента справа от траектории
+            progParams.compensationRadius.type = COMPENSATION_RIGHT;
+            progParams.compensationRadius.value = 1.0;      // радиус по умолчанию
+            for(uint8_t i=0; i<frameLength; i++){
+                GcodeFrameSubData *el = frame+i;
+                switch(el->letter){
+                    case GCODE_LETTER_R:        // радиус
+                        progParams.compensationRadius.value = el->value;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            break;
         case 43:    // G43 - Компенсировать длину инструмента положительно
+            progParams.compensationLength.type = COMPENSATION_POS;
+            progParams.compensationLength.value = 0.0;
+            break;
         case 44:    // G44 - Компенсировать длину инструмента отрицательно
+            progParams.compensationLength.type = COMPENSATION_NEG;
+            progParams.compensationLength.value = 0.0;
+            break;
         case 49:    // G49 - Отмена компенсации длины инструмента
-        case 50:    // G50 - Сброс всех масштабирующих коэффициентов в 1,0
+            progParams.compensationLength.type = COMPENSATION_NONE;
+            progParams.compensationLength.value = 0.0;
+            break;
+        case 50:    // G50 - Сброс всех масштабирующих коэффициентов в 1.0
         case 51:    // G51 - Назначение масштабов
         case 53:    // G53 - Переход в систему координат станка
         case 54:    // G54 - Переключиться на заданную оператором систему координат
@@ -699,6 +754,39 @@ void CncRouter::gcodeProcess_calcCircleByInc(float targetX, float targetY, float
     cp->target.x = targetX;
     cp->target.y = targetY;
     cp->target.z = targetZ;
+}
+
+/**
+ * Программа GCode.
+ * Пауза выполнения программы.
+ */
+void CncRouter::gcodeProcess_pause(){
+    printf("GCode pause: %f sec \n", progParams.pause);
+    esp_timer_create_args_t timerPauseArgs = {
+        .callback = &CncRouter::gcodeProcess_pauseFinish,
+        .arg = NULL,
+        .name = "gcode_pause"
+    };
+
+    esp_timer_handle_t timerPause;
+    ESP_ERROR_CHECK(esp_timer_create(&timerPauseArgs, &timerPause));
+    ESP_ERROR_CHECK(esp_timer_start_once(timerPause, (uint64_t) (progParams.pause*1e6)));
+
+    // задача gcode приостанавливается и
+    // возобновляется в функции funcPauseCallback
+    vTaskSuspend(CncRouter::gcodeTaskHandle);
+    
+    printf("GCode pause resume \n");
+    progParams.pause = 0.0;
+}
+
+/**
+ * Программа GCode.
+ * Завершение паузы выполнения программы.
+ */
+void CncRouter::gcodeProcess_pauseFinish(void *arg){
+    // возобновление основной задачи gcode
+    vTaskResume(CncRouter::gcodeTaskHandle);
 }
 
 /**

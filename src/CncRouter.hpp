@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - prihdmitriy@yandex.ru
+Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -151,6 +151,14 @@ public:
         PLASMA_ARC_STOP
     };
 
+    enum COMPENSATION_TYPE{
+        COMPENSATION_NONE = 0,      // компенсация инструмента отключена
+        COMPENSATION_LEFT,          // компенсация радиуса инструмента слева от траектории
+        COMPENSATION_RIGHT,         // компенсация радиуса инструмента справа от траектории
+        COMPENSATION_POS,           // компенсация длины инструмента положительно
+        COMPENSATION_NEG            // компенсация длины инструмента отрицательно
+    };
+
     struct GcodeCircleInc{
         float i = 0.0;
         float j = 0.0;
@@ -171,6 +179,14 @@ public:
         bool ccw;
         GcodeCoord target;                      // абсолютная целевая точка
     };
+    struct CompensationRadius{
+        COMPENSATION_TYPE type = COMPENSATION_NONE;     // тип компенсации
+        float value = 0.0;                              // значение
+    };
+    struct CompensationLength{
+        COMPENSATION_TYPE type = COMPENSATION_NONE;     // тип компенсации
+        float value = 0.0;                              // значение
+    };
 
     struct ProgParams{
         COORD coordSystem = COORD_ABSOLUTE;
@@ -181,9 +197,12 @@ public:
         GcodeCoord userZeroPoint;       // координаты пользовательского "нуля"
         UNIT_TYPE unit = UNIT_METRIC;   // единицы измерения
         GcodeCircle circle;             // окружность
+        CompensationRadius compensationRadius;      // компенсация радиуса
+        CompensationLength compensationLength;      // компенсация длины
         uint8_t finishCount = 0;        // счётчик осей, по которым перемещение прекратилось
         PLASMA_ARC plasmaArc = PLASMA_ARC_NONE;     // запуск плазмы
         float speed = 50;               // скорость перемещения, mm/sec
+        float pause = 0.0;              // пауза задаваемая командой G04, в секундах
     };
 
 
@@ -473,6 +492,18 @@ public:
      * @param targetZ целевая координата Z
      */
     void gcodeProcess_calcCircleByInc(float targetX, float targetY, float targetZ, GcodeCircleParams *cp);
+
+    /**
+     * Программа GCode.
+     * Пауза выполнения программы.
+     */
+    void gcodeProcess_pause();
+
+    /**
+     * Программа GCode.
+     * Завершение паузы выполнения программы.
+     */
+    static void gcodeProcess_pauseFinish(void *arg);
 
     /**
      * Функция вызываемая при окончании перемещения по оси
