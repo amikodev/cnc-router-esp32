@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "CncRouter.hpp"
 
+#define TAG "CncRouter"
+
 CncRouter* CncRouter::instance = NULL;
 
 xQueueHandle CncRouter::input0EvtQueue = NULL;
@@ -25,8 +27,6 @@ xQueueHandle CncRouter::wsSendEvtQueue = NULL;
 
 
 
-
-const char* CncRouter::LOG_NAME = "CncRouter";
 
 const uint8_t CncRouter::WS_OBJ_NAME_CNC_GCODE = 0x50;
 const uint8_t CncRouter::WS_OBJ_NAME_CNC_GCODE_PREPARE = 0x51;
@@ -57,33 +57,33 @@ const uint8_t CncRouter::WS_PLASMA_ARC_VOLTAGE = 0x03;
  * Конструктор
  * @param axesCount количество осей
  */
-CncRouter::CncRouter(AXES_COUNT axesCount){
+CncRouter::CncRouter(){
 
     instance = this;
 
-    if(axesCount == AXES_NC){
-        return;
-    }
+    // if(axesCount == Axe::AXES_NC){
+    //     return;
+    // }
 
-    _axesCount = axesCount;
-    if(axesCount >= AXES_1)
-        _x = new StepDriver();
-    if(axesCount >= AXES_2)
-        _y = new StepDriver();
-    if(axesCount >= AXES_3)
-        _z = new StepDriver();
-    if(axesCount >= AXES_4)
-        _a = new StepDriver();
-    if(axesCount >= AXES_5)
-        _b = new StepDriver();
-    if(axesCount >= AXES_6)
-        _c = new StepDriver();
+    // _axesCount = axesCount;
+    // if(axesCount >= Axe::AXES_1)
+    //     _x = new StepDriver();
+    // if(axesCount >= Axe::AXES_2)
+    //     _y = new StepDriver();
+    // if(axesCount >= Axe::AXES_3)
+    //     _z = new StepDriver();
+    // if(axesCount >= Axe::AXES_4)
+    //     _a = new StepDriver();
+    // if(axesCount >= Axe::AXES_5)
+    //     _b = new StepDriver();
+    // if(axesCount >= Axe::AXES_6)
+    //     _c = new StepDriver();
 
     // создание очереди и запуск задачи для обработки прерываний со входов
     CncRouter::input0EvtQueue = xQueueCreate(10, sizeof(Input0Interrupt));
     xTaskCreate(CncRouter::input0Task, "input0Task", 2048, NULL, 10, NULL);
 
-
+    // 
     void *ptr;
     CncRouter::wsSendEvtQueue = xQueueCreate(10, sizeof(ptr));
     xTaskCreate(CncRouter::wsSendTask, "wsSendTask", 2048, NULL, 10, NULL);
@@ -97,77 +97,169 @@ CncRouter* CncRouter::getInstance(){
     return instance;
 }
 
-/**
- * Получение объекта оси
- * @param axe ось
- */
-StepDriver* CncRouter::getAxe(AXE axe){
-    StepDriver *sd = NULL;
-    switch(axe){
-        case AXE_X:
-            sd = _x;
-            break;
-        case AXE_Y:
-            sd = _y;
-            break;
-        case AXE_Z:
-            sd = _z;
-            break;
-        case AXE_A:
-            sd = _a;
-            break;
-        case AXE_B:
-            sd = _b;
-            break;
-        case AXE_C:
-            sd = _c;
-            break;
-        default:
-            break;
-    }
+// /**
+//  * Получение объекта оси
+//  * @param axe ось
+//  */
+// StepDriver* CncRouter::getAxe(Axe::AXE axe){
+//     StepDriver *sd = NULL;
+//     switch(axe){
+//         case Axe::AXE_X:
+//             sd = _x;
+//             break;
+//         case Axe::AXE_Y:
+//             sd = _y;
+//             break;
+//         case Axe::AXE_Z:
+//             sd = _z;
+//             break;
+//         case Axe::AXE_A:
+//             sd = _a;
+//             break;
+//         case Axe::AXE_B:
+//             sd = _b;
+//             break;
+//         case Axe::AXE_C:
+//             sd = _c;
+//             break;
+//         default:
+//             break;
+//     }
 
-    if(sd == NULL){
+//     if(sd == NULL){
         
-    }
+//     }
 
-    return sd;
-}
+//     return sd;
+// }
 
-/**
- * Перемещение до целевой позиции
- * @param axe ось
- * @param targetMM целевая позиция, в мм
- * @param speedMmSec скорость, мм/сек
- * @param funcFinish функция вызываемая при окончании перемещения по оси
- */
-void CncRouter::gotoTargetMM(AXE axe, float targetMM, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
+// /**
+//  * Перемещение до целевой позиции
+//  * @param axe ось
+//  * @param targetMM целевая позиция, в мм
+//  * @param speedMmSec скорость, мм/сек
+//  * @param funcFinish функция вызываемая при окончании перемещения по оси
+//  */
+// void CncRouter::gotoTargetMM(Axe::AXE axe, float targetMM, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
 
-    StepDriver *sd = this->getAxe(axe);
-    StepDriver::MotorTarget *mt = sd->calcTarget(targetMM, speedMmSec);
+//     StepDriver *sd = Axe::getStepDriver(axe);
+//     StepDriver::MotorTarget *mt = sd->calcTarget(targetMM, speedMmSec);
 
-    if(mt != NULL){
-        mt->cPulse = 0;
-        mt->callbackFinish = funcFinish;
+//     if(mt != NULL){
+//         mt->cPulse = 0;
+//         mt->callbackFinish = funcFinish;
 
-        esp_timer_create_args_t timerRunArgs = {
-            .callback = &StepDriver::timerRunCallback,
-            .arg = (void *)mt,
-            .name = "axe_"+sd->getLetter()
-        };
+//         esp_timer_create_args_t timerRunArgs = {
+//             .callback = &StepDriver::timerRunCallback,
+//             .arg = (void *)mt,
+//             .name = "axe_"+sd->getLetter()
+//         };
 
-        esp_timer_handle_t timerRun;
-        ESP_ERROR_CHECK(esp_timer_create(&timerRunArgs, &timerRun));
+//         esp_timer_handle_t timerRun;
+//         ESP_ERROR_CHECK(esp_timer_create(&timerRunArgs, &timerRun));
 
-        mt->axe->setTimerRun(timerRun);
+//         mt->axe->setTimerRun(timerRun);
 
-        uint64_t mksStep = mt->mksStep;
-        if(mksStep < 50) mksStep = 50;
-        // printf("mksStep: %llu \n", mksStep);
+//         uint64_t mksStep = mt->mksStep;
+//         if(mksStep < 50) mksStep = 50;
+//         // printf("mksStep: %llu \n", mksStep);
 
-        sd->setDirection(mt->dir);
-        ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
-    }
-}
+//         sd->setDirection(mt->dir);
+//         ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
+//     }
+// }
+
+// /**
+//  * Перемещение до целевой позиции
+//  * @param target целевая точка
+//  * @param current текущая точка
+//  * @param speedMmSec скорость, мм/сек
+//  * @param funcFinish функция вызываемая при окончании перемещения по оси
+//  */
+// void CncRouter::gotoTargetMM(GcodeCoord *target, GcodeCoord *current, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
+
+//     float speed = speedMmSec;
+
+//     float dx = target->x - current->x;
+//     float dy = target->y - current->y;
+//     float dz = target->z - current->z;
+
+//     if(abs(dx) < 0.01) dx = 0.0;
+//     if(abs(dy) < 0.01) dy = 0.0;
+//     if(abs(dz) < 0.01) dz = 0.0;
+
+//     float length = 0.0;
+//     if(dx != 0) length += dx*dx;
+//     if(dy != 0) length += dy*dy;
+//     if(dz != 0) length += dz*dz;
+//     length = sqrt(length);
+
+//     if(dx != 0){
+//         progParams.finishCount++;
+//         float spX = abs(dx)/length*speed;    // разложенная скорость по оси X
+//         gotoTargetMM(AXE_X, target->x, spX, funcFinish);
+//     }
+//     if(dy!= 0){
+//         progParams.finishCount++;
+//         float spY = abs(dy)/length*speed;    // разложенная скорость по оси Y
+//         gotoTargetMM(AXE_Y, target->y, spY, funcFinish);
+//     }
+//     if(dz != 0){
+//         progParams.finishCount++;
+//         float spZ = abs(dz)/length*speed;    // разложенная скорость по оси Z
+//         gotoTargetMM(AXE_Z, target->z, spZ, funcFinish);
+//     }
+
+//     if(progParams.finishCount > 0){
+//         vTaskSuspend(NULL);     // приостановить текущую задачу
+//     //     // переходим к следующему фрейму
+//     //     vTaskResume(CncRouter::gcodeTaskHandle);
+//     }
+
+
+
+// }
+
+// /**
+//  * Перемещение до целевой позиции
+//  * @param target целевая точка
+//  * @param current текущая точка
+//  * @param speedMmSec скорость, мм/сек
+//  * @param funcFinish функция вызываемая при окончании перемещения по оси
+//  */
+// void CncRouter::gotoTargetMM(GCode::PointXY *target, GCode::PointXY *current, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
+//     float speed = speedMmSec;
+
+//     float dx = target->x - current->x;
+//     float dy = target->y - current->y;
+
+//     if(abs(dx) < 0.01) dx = 0.0;
+//     if(abs(dy) < 0.01) dy = 0.0;
+
+//     float length = 0.0;
+//     if(dx != 0) length += dx*dx;
+//     if(dy != 0) length += dy*dy;
+//     length = sqrt(length);
+
+//     if(dx != 0){
+//         progParams.finishCount++;
+//         float spX = abs(dx)/length*speed;    // разложенная скорость по оси X
+//         gotoTargetMM(AXE_X, target->x, spX, funcFinish);
+//     }
+//     if(dy!= 0){
+//         progParams.finishCount++;
+//         float spY = abs(dy)/length*speed;    // разложенная скорость по оси Y
+//         gotoTargetMM(AXE_Y, target->y, spY, funcFinish);
+//     }
+
+//     if(progParams.finishCount > 0){
+//         vTaskSuspend(NULL);     // приостановить текущую задачу
+//     //     // переходим к следующему фрейму
+//     //     vTaskResume(CncRouter::gcodeTaskHandle);
+//     }
+
+// }
+
 
 /**
  * Парсинг входящих данных по WebSocket
@@ -175,21 +267,15 @@ void CncRouter::gotoTargetMM(AXE axe, float targetMM, float speedMmSec, std::fun
  * @param length длина данных
  */
 void CncRouter::parseWsData(uint8_t *data, uint32_t length){
-    printf("recieve binary length: %d \n", length);
-    // вывод входящих данных
-    char *s = (char *) malloc(length*2+1);
-    for (size_t i=0; i<length; i++)
-        sprintf(s + i*2, "%02X ", *(data+i));
-
-    ESP_LOG_BUFFER_HEXDUMP(LOG_NAME, s, length, ESP_LOG_INFO);
-    free(s);
+    ESP_LOGI(TAG, "parseWsData: length: %d", length);
+    ESP_LOG_BUFFER_HEXDUMP(TAG, data, length, ESP_LOG_INFO);
 
     // обработка входящих данных
     if(length == 16){
 
         if(*(data) == WS_OBJ_NAME_AXE){
             if(*(data+1) == WS_CMD_RUN){
-                AXE axe = (AXE)(*(data+2));
+                Axe::AXE axe = (Axe::AXE)(*(data+2));
                 uint8_t dir = *(data+3);
 
                 float speed = 1.0;
@@ -197,21 +283,21 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
 
                 bool runAfterLimit = *(data+8);
 
-                StepDriver *sd = instance->getAxe(axe);
+                StepDriver *sd = Axe::getStepDriver(axe);
                 if(dir == WS_AXE_DIRECTION_FORWARD || dir == WS_AXE_DIRECTION_BACKWARD){
                     printf("WS_OBJ_NAME_AXE --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d \n", sd->getLetter(), dir, speed, runAfterLimit);
                     sd->actionRunStop();
                     sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
-                    instance->setMoveAxe(sd);
+                    // instance->setMoveAxe(sd);
                 }
             } else if(*(data+1) == WS_CMD_STOP){
-                AXE axe = (AXE)(*(data+2));
+                Axe::AXE axe = (Axe::AXE)(*(data+2));
 
-                StepDriver *sd = instance->getAxe(axe);
+                StepDriver *sd = Axe::getStepDriver(axe);
                 printf("WS_OBJ_NAME_AXE --STOP-- axe: %c \n", sd->getLetter());
 
                 sd->actionRunStop();
-                instance->setMoveAxe(NULL);
+                // instance->setMoveAxe(NULL);
             }
 
         } else if(*(data) == WS_OBJ_NAME_CNC_GCODE_PREPARE){
@@ -220,12 +306,16 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
 
                 printf("Prepare size: %d \n", size);
                 // void *dataProg = heap_caps_malloc((size_t)size, 0);
-                void *dataProg = calloc(size>>4, 16);
-                instance->setGcodePtr(dataProg, size);
+                // void *dataProg = calloc(size>>4, 16);
+                // GCode::setPtr(dataProg, size);
+                // instance->setGcodePtr(dataProg, size);
+
                 uint8_t dataResp[16] = {0};
                 dataResp[0] = WS_OBJ_NAME_CNC_GCODE_PREPARE;
                 dataResp[1] = WS_PREPARE_SIZE;
-                if(dataProg != NULL){
+
+                if(GCode::init(size)){
+                // if(dataProg != NULL){
                     // памяти для программы хватает, выделяем и отправляем ответ клиенту
                     dataResp[2] = 0x01;
                 } else{
@@ -240,10 +330,10 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
 
                 bool testRunChecked = (bool)(*(data+2));        // тестовый прогон программы gcode
 
-                if(instance->isGcodeRunnable()){
+                if(GCode::isRunnable()){
                     // запускаем программу
-                    instance->setTestRunChecked(testRunChecked);
-                    instance->runGcode();
+                    GCode::setTestRunChecked(testRunChecked);
+                    GCode::run();
                     dataResp[2] = 0x01;
                 } else{
                     dataResp[2] = 0x00;
@@ -256,37 +346,13 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
             xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
         } else if(*(data) == WS_OBJ_NAME_COORD_TARGET){
             if(*(data+1) == WS_CMD_RUN){
-                float targetX = 0.0;
-                float targetY = 0.0;
-                float targetZ = 0.0;
-                memcpy(&targetX, data+2, 4);
-                memcpy(&targetY, data+6, 4);
-                memcpy(&targetZ, data+10, 4);
-
-                float dx = targetX - instance->getAxe(AXE_X)->getPositionMM();
-                float dy = targetY - instance->getAxe(AXE_Y)->getPositionMM();
-                float dz = targetZ - instance->getAxe(AXE_Z)->getPositionMM();
-
-                float length = 0.0;
-                if(dx != 0) length += dx*dx;
-                if(dy != 0) length += dy*dy;
-                if(dz != 0) length += dz*dz;
-                length = sqrt(length);
-
+                Geometry::Point point;
+                // memcpy(&point.x, data+2, 4);
+                // memcpy(&point.y, data+6, 4);
+                // memcpy(&point.z, data+10, 4);
+                memcpy(&point, data+2, 12);
                 float speed = 50; //300;       // mm/sec
-
-                if(dx != 0){
-                    float spX = abs(dx)/length*speed;    // разложенная скорость по оси X
-                    instance->gotoTargetMM(AXE_X, targetX, spX, NULL);
-                }
-                if(dy != 0){
-                    float spY = abs(dy)/length*speed;    // разложенная скорость по оси Y
-                    instance->gotoTargetMM(AXE_Y, targetY, spY, NULL);
-                }
-                if(dz != 0){
-                    float spZ = abs(dz)/length*speed;    // разложенная скорость по оси Z
-                    instance->gotoTargetMM(AXE_Z, targetZ, spZ, NULL);
-                }
+                ActionMove::gotoPoint(&point, speed, NULL);
             }
         } 
         
@@ -322,7 +388,8 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
     } else if(length > 16){
         if(*(data) == WS_OBJ_NAME_CNC_GCODE){
             // первые 16 байт отбрасываются
-            instance->gcodeAppend(data+16, length-16);
+            // instance->gcodeAppend(data+16, length-16);
+            GCode::append(data+16, length-16);
             uint8_t dataResp[16] = {0};
             dataResp[0] = WS_OBJ_NAME_CNC_GCODE;
             xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
@@ -491,13 +558,13 @@ void CncRouter::setProbeAxe(StepDriver *axe){
     probeAxe = axe;
 }
 
-/**
- * Установка оси для простого перемещения
- * @param axe ось
- */
-void CncRouter::setMoveAxe(StepDriver *axe){
-    moveAxe = axe;
-}
+// /**
+//  * Установка оси для простого перемещения
+//  * @param axe ось
+//  */
+// void CncRouter::setMoveAxe(StepDriver *axe){
+//     moveAxe = axe;
+// }
 
 /**
  * 
@@ -511,6 +578,47 @@ void CncRouter::wsSendTask(void *arg){
         }
     }
 }
+
+/**
+ * 
+ */
+void CncRouter::currentPointTask(void *arg){
+    uint8_t data[16] = {0};
+
+    data[0] = WS_OBJ_NAME_COORDS;
+    data[1] = WS_CMD_READ;
+
+    Geometry::Point _lastPoint;
+    Geometry::Point _currentPoint;
+
+    for(;;){
+        _currentPoint.x = Axe::getStepDriver(Axe::AXE_X)->getPositionMM();
+        _currentPoint.y = Axe::getStepDriver(Axe::AXE_Y)->getPositionMM();
+        _currentPoint.z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
+        // _currentPoint.a = Axe::getStepDriver(Axe::AXE_A)->getPositionMM();
+        // _currentPoint.b = Axe::getStepDriver(Axe::AXE_B)->getPositionMM();
+        // _currentPoint.c = Axe::getStepDriver(Axe::AXE_C)->getPositionMM();
+
+        if(!Geometry::pointsIsEqual(&_lastPoint, &_currentPoint)){
+            memcpy((data+2), &_currentPoint, 4*3);      // отправка координат x, y, z
+            ws_server_send_bin_all((char *)data, 16);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        } else{
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        memcpy(&_lastPoint, &_currentPoint, sizeof(Geometry::Point));
+    }
+}
+
+/**
+ * Запустить задачу уведомления об изменении текущих координат
+ */
+void CncRouter::enableCurrentPointNotify(){
+    // 
+    xTaskCreate(CncRouter::currentPointTask, "currentPointTask", 2048, NULL, 10, NULL);
+}
+
+
 
 // /**
 //  * Получение текущих координат
@@ -546,20 +654,20 @@ void CncRouter::plasmaArcStartedCallback(bool started){
     dataResp[2] = (uint8_t) started;
     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
 
-    ProgParams *progParams = instance->getProgParams();
-    if(started && progParams->plasmaArc == PLASMA_ARC_START){
-        // возобновление основной задачи gcode
-        vTaskResume(gcodeTaskHandle);
-    }
+    // ProgParams *progParams = instance->getProgParams();
+    // if(started && progParams->plasmaArc == PLASMA_ARC_START){
+    //     // возобновление основной задачи gcode
+    //     vTaskResume(gcodeTaskHandle);
+    // }
 
 }
 
-/**
- * Установка тестового прогона программы gcode
- * @param checked тестовый прогон программы gcode
- */
-void CncRouter::setTestRunChecked(bool checked){
-    _testRunChecked = checked;
-}
+// /**
+//  * Установка тестового прогона программы gcode
+//  * @param checked тестовый прогон программы gcode
+//  */
+// void CncRouter::setTestRunChecked(bool checked){
+//     _testRunChecked = checked;
+// }
 
 

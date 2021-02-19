@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "StepDriver.hpp"
 
+#define TAG "StepDriver"
+
 /**
  * Конструктор
  */
@@ -122,9 +124,9 @@ StepDriver* StepDriver::setRevMM(double mm){
 /**
  * Рассчёт параметров до целевой позиции
  * @param targetMM целевая позиция, в мм
- * @param speedMmSec скорость, мм/сек
+ * @param speed скорость, мм/сек
  */
-StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speedMmSec){
+StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
     getPositionMM();
 
     // printf("axe: %c, targetMM: %f, _positionMM: %f, _positionMax: %llu, _position: %llu \n", _letter, targetMM, _positionMM, _positionMax, _position);
@@ -140,12 +142,12 @@ StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speedMmSec
     uint32_t dxPulses = _pulses*_reductor*dxMM/_rmm * 2;      // количество импульсов необходимое для достижения цели
 
     MotorTarget *mt = &motorTarget;
-    mt->axe = this;
+    mt->stepDriver = this;
     mt->dir = dir;
     mt->dxPulses = dxPulses;
-    mt->speed = speedMmSec;
+    mt->speed = speed;
 
-    mt->mksStep = 1000000.0/( _pulses*_reductor*speedMmSec/_rmm * 2 );
+    mt->mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
 
     return mt;
 }
@@ -181,33 +183,26 @@ void StepDriver::timerRunCallback(void* arg){
 
     if(mt->cPulse < mt->dxPulses){
         // импульс для текущей оси
-        mt->axe->setPulseLevel((mt->cPulse % 2) == 0);
+        mt->stepDriver->setPulseLevel((mt->cPulse % 2) == 0);
 
         // импульсы для дочерних синхронизируемых
-        for(uint8_t i=0; i<mt->axe->getSyncChildsCount(); i++){
-            mt->axe->getSyncChilds()[i]->setPulseLevel((mt->cPulse % 2) == 0);
+        for(uint8_t i=0; i<mt->stepDriver->getSyncChildsCount(); i++){
+            mt->stepDriver->getSyncChilds()[i]->setPulseLevel((mt->cPulse % 2) == 0);
         }
 
         mt->cPulse++;
         if((mt->cPulse % 2) == 0){
-            mt->axe->positionInc(!mt->dir ? 1 : -1);
+            mt->stepDriver->positionInc(!mt->dir ? 1 : -1);
         }
     } else{
         // остановка и удаление таймера
-        // printf("stop timer run: %d \n", mt->cPulse);
-        mt->axe->stopTimerRun();
+        mt->stepDriver->stopTimerRun();
 
+        ESP_LOGI(TAG, "timerRun stop : axe: %c, position: %llu, positionMM: %f", mt->stepDriver->getLetter(), mt->stepDriver->getPosition(), mt->stepDriver->getPositionMM());
         if(mt->callbackFinish != NULL){
-            mt->callbackFinish(mt->axe);
+            mt->callbackFinish(mt->stepDriver);
         }
-
-        printf("StepDriver::timerRunCallback STOP : axe: %c, position: %llu, positionMM: %f \n", mt->axe->getLetter(), mt->axe->getPosition(), mt->axe->getPositionMM());
-
-        // esp_timer_handle_t timerRun = mt->axe->getTimerRun();
-        // ESP_ERROR_CHECK(esp_timer_stop(timerRun));
-        // ESP_ERROR_CHECK(esp_timer_delete(timerRun));
     }
-
 }
 
 /**
@@ -237,26 +232,27 @@ void StepDriver::stopTimerRun(){
 }
 
 /**
- * Запуск перемещения
+ * Запуск простого перемещения без целевой точки
  * @param mode тип работы
  * @param direction направление (вперёд/назад)
- * @param speedMmSec скорость, мм/сек
+ * @param speed скорость, мм/сек
  * @param stopLimit флаг прекращения движения при достижении предела
  */
-void StepDriver::actionRun(RUN_MODE mode, bool direction, float speedMmSec, bool stopLimit){
+void StepDriver::actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit){
     runMode = MODE_PROBE;
 
     MotorActionRun *mp = &motorActionRun;
 
-    mp->axe = this;
+    mp->stepDriver = this;
     mp->cPulse = 0;
     mp->dir = direction;
-    mp->speed = speedMmSec;
+    mp->speed = speed;
     mp->stopLimit = stopLimit;
 
     esp_timer_create_args_t timerRunArgs = {
         .callback = &StepDriver::timerActionRunCallback,
         .arg = (void *)mp,
+        .dispatch_method = ESP_TIMER_TASK,
         .name = "probe_"+this->getLetter()
     };
 
@@ -267,7 +263,7 @@ void StepDriver::actionRun(RUN_MODE mode, bool direction, float speedMmSec, bool
 
     printf("start timer action run: %d \n", mode);
 
-    uint64_t mksStep = 1000000.0/( _pulses*_reductor*speedMmSec/_rmm * 2 );
+    uint64_t mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
 
     printf("mksStep action run: %llu \n", mksStep);
     // if(mksStep < 50) mksStep = 50;
@@ -312,34 +308,34 @@ void StepDriver::actionRunStop(){
 void StepDriver::timerActionRunCallback(void* arg){
     MotorActionRun *mp = (MotorActionRun *)arg;
 
-    uint64_t position = mp->axe->getPosition();
+    uint64_t position = mp->stepDriver->getPosition();
     int64_t pos = (int64_t) position;
 
     if(mp->dir){    // движемся в обратном направлении, к нулю
         if(mp->stopLimit && pos <= 0){
             // останавливаем движение и таймер
-            mp->axe->actionRunStop();
+            mp->stepDriver->actionRunStop();
             return;
         }
     } else{         // движемся в прямом направлении, к максимальной позиции
-        if(mp->stopLimit && pos >= mp->axe->getPositionMax()){
+        if(mp->stopLimit && pos >= mp->stepDriver->getPositionMax()){
             // останавливаем движение и таймер
-            mp->axe->actionRunStop();
+            mp->stepDriver->actionRunStop();
             return;
         }
     }
 
     // импульс для текущей оси
-    mp->axe->setPulseLevel((mp->cPulse % 2) == 0);
+    mp->stepDriver->setPulseLevel((mp->cPulse % 2) == 0);
 
     // импульсы для дочерних синхронизируемых осей
-    for(uint8_t i=0; i<mp->axe->getSyncChildsCount(); i++){
-        mp->axe->getSyncChilds()[i]->setPulseLevel((mp->cPulse % 2) == 0);
+    for(uint8_t i=0; i<mp->stepDriver->getSyncChildsCount(); i++){
+        mp->stepDriver->getSyncChilds()[i]->setPulseLevel((mp->cPulse % 2) == 0);
     }
 
     mp->cPulse++;
     if((mp->cPulse % 2) == 0){
-        mp->axe->positionInc(!mp->dir ? 1 : -1);
+        mp->stepDriver->positionInc(!mp->dir ? 1 : -1);
     }
 }
 
@@ -424,6 +420,7 @@ uint64_t StepDriver::getPositionMax(){
 StepDriver* StepDriver::addSyncChild(StepDriver *child){
     if(syncChildsCount < 4){
         syncChilds[syncChildsCount] = child;
+        child->setIsSynced(true);
         syncChildsCount++;
     } else{
 
@@ -444,5 +441,20 @@ StepDriver** StepDriver::getSyncChilds(){
  */
 uint8_t StepDriver::getSyncChildsCount(){
     return syncChildsCount;
+}
+
+/**
+ * Установка флага того, что данная ось синхронизирована с другой и является дочерней
+ * @param synced флаг синхронизации
+ */
+void StepDriver::setIsSynced(bool synced){
+    isSynced = synced;
+}
+
+/**
+ * Получение флага того, что данная ось синхронизирована с другой и является дочерней
+ */
+bool StepDriver::getIsSynced(){
+    return isSynced;
 }
 

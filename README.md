@@ -33,6 +33,7 @@ Component config --->
     Amikodev Wi-Fi --->
         далее задаёте настройки новой точки доступа и/или подключение к существующей сети
         пункт 'SD card' зарезервирован для последующей реализации
+        пункт 'Spiffs' необходим если web-приложение находится в разделе flash-памяти spiffs
     FAT Filesystem support --->
         Long filename support --->
             Long filename buffer in heap

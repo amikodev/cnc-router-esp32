@@ -41,51 +41,56 @@ class StepDriver{
 
 public:
 
+    /**
+     * Перемещение к целевой точке
+     */
     struct MotorTarget{
-        StepDriver *axe;    // ось
-        uint32_t dxPulses;  // количество импульсов
-        uint32_t cPulse;    // текущий номер импульса
-        bool dir;           // направление
-        float speed;        // скорость, мм/сек
-        uint64_t mksStep;   // пауза между импульсами, мкс
-        // void (*callbackFinish)(StepDriver *sd) = NULL;      // функция вызываемая при окончании перемещения по оси
-        std::function<void (StepDriver *sd)> callbackFinish = NULL;
-    };
-
-    struct MotorActionRun{
-        StepDriver *axe;                // ось
+        StepDriver *stepDriver;         // ось
+        uint32_t dxPulses;              // количество импульсов
         uint32_t cPulse;                // текущий номер импульса
         bool dir;                       // направление
-        float speed;                    // количество оборотов в секунду
+        float speed;                    // скорость, мм/сек
+        uint64_t mksStep;               // пауза между импульсами, мкс
+        std::function<void (StepDriver *sd)> callbackFinish = NULL;         // функция вызываемая при окончании перемещения по оси
+    };
+
+    /**
+     * Простое перемещение без целевой точки
+     */
+    struct MotorActionRun{
+        StepDriver *stepDriver;         // ось
+        uint32_t cPulse;                // текущий номер импульса
+        bool dir;                       // направление
+        float speed;                    // скорость, мм/сек
         float stopLimit = true;         // флаг прекращения движения при достижении предела
     };
 
     enum RUN_MODE{
-        MODE_NONE = 0,      // не работает
-        MODE_MOVE,          // простое перемещение
-        MODE_LIMIT,         // поиск предела
-        MODE_HOME,          // поиск Home
-        MODE_PROBE          // поиск датчика Probe
+        MODE_NONE = 0,                  // не работает
+        MODE_MOVE,                      // простое перемещение
+        MODE_LIMIT,                     // поиск предела
+        MODE_HOME,                      // поиск Home
+        MODE_PROBE                      // поиск датчика Probe
     };
 
 
 private:
 
-    gpio_num_t _pinPul = GPIO_NUM_NC;           // вывод импульсов на драйвер мотора
-    gpio_num_t _pinDir = GPIO_NUM_NC;           // вывод направления на драйвер мотора
-    uint16_t _pulses = 0;                       // количество импульсов на 1 оборот
-    char _letter = '-';                         // буква оси
-    float _reductor = 1.0;                      // передаточное число редуктора
+    gpio_num_t _pinPul = GPIO_NUM_NC;   // вывод импульсов на драйвер мотора
+    gpio_num_t _pinDir = GPIO_NUM_NC;   // вывод направления на драйвер мотора
+    uint16_t _pulses = 0;               // количество импульсов на 1 оборот
+    char _letter = '-';                 // буква оси
+    float _reductor = 1.0;              // передаточное число редуктора
 
-    uint64_t _position = 0;       // текущая позиция, в количестве импульсов
-    uint64_t _target = 0;         // целевая позиция, в количестве импульсов
-    uint64_t _positionMax = 0;    // максимальная позиция, в количестве импульсов
+    uint64_t _position = 0;             // текущая позиция, в количестве импульсов
+    uint64_t _target = 0;               // целевая позиция, в количестве импульсов
+    uint64_t _positionMax = 0;          // максимальная позиция, в количестве импульсов
 
-    double _rmm = 0.0;            // расстояние проходимое за 1 оборот, в мм
-    double _positionMM = 0.0;     // текущая позиция, в мм
+    double _rmm = 0.0;                  // расстояние проходимое за 1 оборот, в мм
+    double _positionMM = 0.0;           // текущая позиция, в мм
 
-    float _limMinMM = 0.0;        // минимальный предел, в мм
-    float _limMaxMM = 0.0;        // максимальный предел, в мм
+    float _limMinMM = 0.0;              // минимальный предел, в мм
+    float _limMaxMM = 0.0;              // максимальный предел, в мм
 
     esp_timer_handle_t _timerRun = NULL;
 
@@ -97,8 +102,9 @@ private:
     MotorTarget motorTarget;
     MotorActionRun motorActionRun;
 
-    StepDriver *syncChilds[4] = {NULL, NULL, NULL, NULL};
-    uint8_t syncChildsCount = 0;
+    StepDriver *syncChilds[4] = {NULL, NULL, NULL, NULL};       // синхронизируемые оси
+    uint8_t syncChildsCount = 0;                                // количество синхронизируемых осей
+    bool isSynced = false;                                      // синхронизируема с другой осью
 
 
 public:
@@ -166,9 +172,9 @@ public:
     /**
      * Рассчёт параметров до целевой позиции
      * @param targetMM целевая позиция, в мм
-     * @param speedMmSec скорость, мм/сек
+     * @param speed скорость, мм/сек
      */
-    MotorTarget* calcTarget(float targetMM, float speedMmSec);
+    MotorTarget* calcTarget(float targetMM, float speed);
 
     /**
      * Передача импульса на контроллер
@@ -205,13 +211,13 @@ public:
     void stopTimerRun();
 
     /**
-     * Запуск перемещения
+     * Запуск простого перемещения без целевой точки
      * @param mode тип работы
      * @param direction направление (вперёд/назад)
-     * @param speedMmSec скорость, мм/сек
+     * @param speed скорость, мм/сек
      * @param stopLimit флаг прекращения движения при достижении предела
      */
-    void actionRun(RUN_MODE mode, bool direction, float speedMmSec, bool stopLimit=true);
+    void actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit=true);
 
     /**
      * Окончание перемещения
@@ -282,6 +288,17 @@ public:
      * Получение количества синхронизируемых осей
      */
     uint8_t getSyncChildsCount();
+
+    /**
+     * Установка флага того, что данная ось синхронизирована с другой и является дочерней
+     * @param synced флаг синхронизации
+     */
+    void setIsSynced(bool synced);
+
+    /**
+     * Получение флага того, что данная ось синхронизирована с другой и является дочерней
+     */
+    bool getIsSynced();
 
 };
 

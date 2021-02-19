@@ -1,10 +1,16 @@
 
 set(app_sources
 	"main.cpp"
+    "Axe.cpp"
+    "Geometry.cpp"
+    "ActionMove.cpp"
 	"StepDriver.cpp"
 	"CncRouter.cpp"
-    "CncRouter_gcode.cpp"
+#    "CncRouter_gcode.cpp"
+    "gcode/GCode.cpp"
+    "gcode/GCodeCR.cpp"
     "Plasma.cpp"
+
 )
 
 set(includes
@@ -12,9 +18,14 @@ set(includes
 )
 
 set(reqs
+    spiffs
 )
 
 set(files
+    ../server/index.html
+    ../server/style.css
+    ../server/main.js
+    ../server/error.html
 )
 
 
