@@ -35,6 +35,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "wifi.hpp"
 #include "httprequest.hpp"
 #include "sdcard-storage.hpp"
+#include "spiffs-storage.hpp"
 #include "shiftload.hpp"
 
 #include "Axe.hpp"
@@ -122,6 +123,12 @@ void app_main() {
     //     // sdmmc_card_t *cardInfo = card->getCardInfo();
     //     Wifi::setSdCard(card);
     // }
+
+    // spiffs
+    SpiffsStorage *spiffs = new SpiffsStorage();
+    if(spiffs->init((char *)"/spiffs")){
+        Wifi::setSpiffs(spiffs);
+    }
 
     ws_server_start();
     xTaskCreate(&Wifi::serverTask, "server_task", 3000, NULL, 9, NULL);
