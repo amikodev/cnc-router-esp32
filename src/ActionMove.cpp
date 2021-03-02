@@ -51,7 +51,8 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
         };
 
         esp_timer_handle_t timerRun;
-        ESP_ERROR_CHECK(esp_timer_create(&timerRunArgs, &timerRun));
+        // ESP_ERROR_CHECK(esp_timer_create(&timerRunArgs, &timerRun));
+        esp_timer_create(&timerRunArgs, &timerRun);
 
         mt->stepDriver->setTimerRun(timerRun);
 
@@ -60,7 +61,8 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
         // ESP_LOGI(TAG, "mksStep: %llu", mksStep);
 
         sd->setDirection(mt->dir);
-        ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
+        // ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
+        esp_timer_start_periodic(timerRun, mksStep);
     }
 
 }
@@ -71,9 +73,11 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
  * @param speed скорость, мм/сек
  * @param funcFinish функция вызываемая при окончании перемещения
  */
-void ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<void ()> funcFinish){
+bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<void ()> funcFinish){
 
     Axe::AXES_COUNT axesCount = Axe::getAxesCount();
+
+    // point->log(TAG, "gotoPoint");
 
     float pvals[axesCount+1] = {0.0};       // целевые координаты
     float dvals[axesCount+1] = {0.0};       // смещение координат
@@ -87,12 +91,14 @@ void ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
             StepDriver *sd = Axe::getStepDriver(axe);
             if(!sd->getIsSynced()){
                 pvals[axe] = pointVal;
-                dv = pointVal - sd->getPositionMM();
-                if(abs(dv) < 0.01) dv = 0.0;
+                float curPos = sd->getPositionMM();
+                dv = pointVal - curPos;
+                // if(abs(dv) < 0.01) dv = 0.0;
+                if(abs(dv) < 0.03) dv = 0.0;        // необходимо уменьшать значение 0.3, потому что возможны проблемы с точностью, вероятно нужно будет перейти на double
                 if(dv != 0.0){ 
                     length += dv*dv;
                     dvals[axe] = dv;
-                    // ESP_LOGI(TAG, "calcLength: axe: %d, pointVal: %f, dv: %f", axe, pointVal, dv);
+                    // ESP_LOGI(TAG, "calcLength: axe: %d, pointVal: %f, curPos: %f, dv: %f", axe, pointVal, curPos, dv);
                 }
             }
         }
@@ -100,10 +106,10 @@ void ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
 
     calcLength(point->x, Axe::AXE_X);
     calcLength(point->y, Axe::AXE_Y);
-    // calcLength(point->z, Axe::AXE_Z);
-    // calcLength(point->a, Axe::AXE_A);
-    // calcLength(point->b, Axe::AXE_B);
-    // calcLength(point->c, Axe::AXE_C);
+    calcLength(point->z, Axe::AXE_Z);
+    calcLength(point->a, Axe::AXE_A);
+    calcLength(point->b, Axe::AXE_B);
+    calcLength(point->c, Axe::AXE_C);
 
     length = sqrt(length);
 
@@ -137,8 +143,8 @@ void ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
             // ESP_LOGI(TAG, "gotoAxePoint: axe: %d, spV: %f", i, spV);
         }
     }
-
-
+    
+    return axeMoveCount>0;
 }
 
 /**
@@ -147,8 +153,7 @@ void ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
  * @param speed скорость, мм/сек
  * @param funcFinish функция вызываемая при окончании перемещения
  */
-void ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> funcFinish){
-
+bool ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> funcFinish){
     // ActionMove::gotoPoint((Geometry::Point *) point, speed, funcFinish);
 
     // Geometry::Point point2 = {
@@ -158,15 +163,7 @@ void ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<
     // };
 
     Geometry::Point point2 = Geometry::getPoint(point);
-
-    // if(funcFinish == NULL){
-    //     ESP_LOGI(TAG, "funcFinish is NULL");
-    // } else{
-    //     ESP_LOGI(TAG, "funcFinish is not NULL");
-    // }
-
-    gotoPoint(&point2, speed, funcFinish);
-
+    return gotoPoint(&point2, speed, funcFinish);
 }
 
 /**
@@ -175,13 +172,14 @@ void ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<
  * @param speed скорость, мм/сек
  * @param funcFinish функция вызываемая при окончании перемещения
  */
-void ActionMove::circle(Geometry::CircleSegment *circle, float speed, std::function<void ()> funcFinish){
+bool ActionMove::circle(Geometry::CircleSegment *circle, float speed, std::function<void ()> funcFinish){
     CircleTask *circleTaskData = new CircleTask();
     circleTaskData->circle = circle;
     circleTaskData->speed = speed;
     circleTaskData->funcFinish = funcFinish;
 
-    xTaskCreate(circleTask, "circleTask", 4096, (void *) circleTaskData, 10, &circleTaskHandle);
+    xTaskCreate(circleTask, "circleTask", 4096, (void *) circleTaskData, 10, &ActionMove::circleTaskHandle);
+    return true;
 }
 
 /**
@@ -192,9 +190,11 @@ void ActionMove::circleTask(void *arg){
     Geometry::CircleSegment *circle = circleTaskData->circle;
 
     std::function<void ()> funcTargetFinish = [&](){
-        ESP_LOGI(TAG_CIRCLE, "funcTargetFinish");
-        vTaskResume(circleTaskHandle);
+        // ESP_LOGI(TAG_CIRCLE, "funcTargetFinish");
+        vTaskResume(ActionMove::circleTaskHandle);
     };
+
+    Geometry::Point defaultPoint = { .x = 0.0, .y = 0.0, .z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM(), .a = 0.0, .b = 0.0, .c = 0.0};
 
     float dAngle = 1/circle->r;
 
@@ -211,10 +211,14 @@ void ActionMove::circleTask(void *arg){
     float cAngle = a1;      // текущий угол
     uint16_t steps = abs((a2-a1)/dAngle);
 
-    ESP_LOGI(TAG_CIRCLE, "dAngle: %f, steps: %d", dAngle*180/PI, steps);
+    // if(circle->r < 1.0){
+    //     ESP_LOGI(TAG_CIRCLE, "r: %.4f, a1: %f, a2: %f, dAngle: %f, steps: %d", circle->r, a1*180/PI, a2*180/PI, dAngle*180/PI, steps);
+    //     circle->p1.log(TAG_CIRCLE, "p1");
+    //     circle->p2.log(TAG_CIRCLE, "p2");
+    // }
 
     if(circle->r < 0.5){         // окружности со слишком малым радиусом игнорируем
-        ESP_LOGI(TAG_CIRCLE, "Ignore this circle, draw line");
+        // ESP_LOGI(TAG_CIRCLE, "Ignore this circle, draw line");
     } else{
         cAngle += dAngle;
         for(uint16_t i=0; i<steps; i++){        // линейная интерполяция по каждой внутренней точке окружности
@@ -222,24 +226,27 @@ void ActionMove::circleTask(void *arg){
                 .x = circle->r * (float)cos(cAngle) + circle->center.x,
                 .y = circle->r * (float)sin(cAngle) + circle->center.y
             };
-            Geometry::Point circlePoint = Geometry::getPoint(&circlePointXY);
+            Geometry::Point circlePoint = Geometry::getPoint(&circlePointXY, defaultPoint);
 
-            ESP_LOGI(TAG_CIRCLE, "x: %.2f, y: %.2f, angle: %.2f", circlePoint.x, circlePoint.y, cAngle*180/PI);
+            // ESP_LOGI(TAG_CIRCLE, "x: %.2f, y: %.2f, angle: %.2f", circlePoint.x, circlePoint.y, cAngle*180/PI);
 
-            gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish);
-            vTaskSuspend(NULL);
+            if(gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish)){
+                vTaskSuspend(NULL);
+            }
             cAngle += dAngle;
         }
     }
 
     // рисуем дополнительную линию
-    if(!Geometry::pointsIsEqual(&circle->p1, &circle->p2)){
-        Geometry::Point circlePoint = Geometry::getPoint(&(circle->p2));
-        gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish);
-        vTaskSuspend(NULL);
+    if(steps > 0 && !Geometry::pointsIsEqual(&circle->p1, &circle->p2)){
+        // ESP_LOGI(TAG_CIRCLE, "goto last point");
+        Geometry::Point circlePoint = Geometry::getPoint(&(circle->p2), defaultPoint);
+        if(gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish)){
+            vTaskSuspend(NULL);
+        }
     }
 
-    ESP_LOGI(TAG_CIRCLE, "FINISH");
+    // ESP_LOGI(TAG_CIRCLE, "FINISH");
     if(circleTaskData->funcFinish != NULL){
         // ESP_LOGI(TAG_CIRCLE, "call funcFinish");
         (circleTaskData->funcFinish)();

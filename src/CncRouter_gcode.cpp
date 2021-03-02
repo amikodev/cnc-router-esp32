@@ -96,7 +96,7 @@ void CncRouter::runGcode(){
 /**
  * Обработка фрейма программы GCode
  */
-void CncRouter::gcodeProcessFrame(GcodeFrameSubData *frame, uint8_t frameLength){
+bool CncRouter::gcodeProcessFrame(GcodeFrameSubData *frame, uint8_t frameLength){
     printf("CncRouter::gcodeProcessFrame frameLength: %d; %p \n", frameLength, frame);
 
     bool processThisFrame = true;
@@ -156,54 +156,56 @@ void CncRouter::gcodeProcessFrame(GcodeFrameSubData *frame, uint8_t frameLength)
     }
 
     if(!processThisFrame)       // текущую команду Gxx, Mxx не обрабатываем
-        return;
+        return false;
+
+    return true;
 
 
-    float targetX = 0.0;
-    float targetY = 0.0;
-    float targetZ = 0.0;
+    // float targetX = 0.0;
+    // float targetY = 0.0;
+    // float targetZ = 0.0;
 
-    if( 
-        progParams.runType == RUN_FAST || 
-        progParams.runType == RUN_WORK_LINEAR || 
-        progParams.runType == RUN_WORK_CW || 
-        progParams.runType == RUN_WORK_CCW
-    ){
-        targetX = progParams.targetCoord.x + progParams.systemCoord.x;
-        targetY = progParams.targetCoord.y + progParams.systemCoord.y;
-        targetZ = progParams.targetCoord.z + progParams.systemCoord.z;
-    }
+    // if( 
+    //     progParams.runType == RUN_FAST || 
+    //     progParams.runType == RUN_WORK_LINEAR || 
+    //     progParams.runType == RUN_WORK_CW || 
+    //     progParams.runType == RUN_WORK_CCW
+    // ){
+    //     targetX = progParams.targetCoord.x + progParams.systemCoord.x;
+    //     targetY = progParams.targetCoord.y + progParams.systemCoord.y;
+    //     targetZ = progParams.targetCoord.z + progParams.systemCoord.z;
+    // }
 
-    // printf("progParams.runType: %d, targetX: %f, targetY: %f \n", progParams.runType, targetX, targetY);
+    // // printf("progParams.runType: %d, targetX: %f, targetY: %f \n", progParams.runType, targetX, targetY);
 
-    if(progParams.pause > 0.0){
-        // пауза выполнения программы
-        gcodeProcess_pause();
-    }
+    // if(progParams.pause > 0.0){
+    //     // пауза выполнения программы
+    //     gcodeProcess_pause();
+    // }
 
-    if(progParams.runType == RUN_FAST){                         // быстрое линейное перемещение
-        gcodeProcess_drawLine(targetX, targetY, targetZ);
-        gcodeRecalcCoords(targetX, targetY, targetZ);
-    } else if(progParams.runType == RUN_WORK_LINEAR){           // рабочее линейное перемещение
-        gcodeProcess_drawLine(targetX, targetY, targetZ);
-        gcodeRecalcCoords(targetX, targetY, targetZ);
-    } else if(progParams.runType == RUN_WORK_CW){               // перемещение по окружности по часовой стрелке
-        progParams.circle.type == CIRCLE_RADIUS ? gcodeProcess_calcCircleByRadius(targetX, targetY, targetZ, &gcodeCircleParams) : gcodeProcess_calcCircleByInc(targetX, targetY, targetZ, &gcodeCircleParams);
-        gcodeProcess_drawCircle(&gcodeCircleParams);
-        gcodeRecalcCoords(targetX, targetY, targetZ);
-    } else if(progParams.runType == RUN_WORK_CCW){              // перемещение по окружности против часовой стрелки
-        progParams.circle.type == CIRCLE_RADIUS ? gcodeProcess_calcCircleByRadius(targetX, targetY, targetZ, &gcodeCircleParams) : gcodeProcess_calcCircleByInc(targetX, targetY, targetZ, &gcodeCircleParams);
-        gcodeProcess_drawCircle(&gcodeCircleParams);
-        gcodeRecalcCoords(targetX, targetY, targetZ);
-    }
+    // if(progParams.runType == RUN_FAST){                         // быстрое линейное перемещение
+    //     gcodeProcess_drawLine(targetX, targetY, targetZ);
+    //     gcodeRecalcCoords(targetX, targetY, targetZ);
+    // } else if(progParams.runType == RUN_WORK_LINEAR){           // рабочее линейное перемещение
+    //     gcodeProcess_drawLine(targetX, targetY, targetZ);
+    //     gcodeRecalcCoords(targetX, targetY, targetZ);
+    // } else if(progParams.runType == RUN_WORK_CW){               // перемещение по окружности по часовой стрелке
+    //     progParams.circle.type == CIRCLE_RADIUS ? gcodeProcess_calcCircleByRadius(targetX, targetY, targetZ, &gcodeCircleParams) : gcodeProcess_calcCircleByInc(targetX, targetY, targetZ, &gcodeCircleParams);
+    //     gcodeProcess_drawCircle(&gcodeCircleParams);
+    //     gcodeRecalcCoords(targetX, targetY, targetZ);
+    // } else if(progParams.runType == RUN_WORK_CCW){              // перемещение по окружности против часовой стрелки
+    //     progParams.circle.type == CIRCLE_RADIUS ? gcodeProcess_calcCircleByRadius(targetX, targetY, targetZ, &gcodeCircleParams) : gcodeProcess_calcCircleByInc(targetX, targetY, targetZ, &gcodeCircleParams);
+    //     gcodeProcess_drawCircle(&gcodeCircleParams);
+    //     gcodeRecalcCoords(targetX, targetY, targetZ);
+    // }
 
-    if(progParams.plasmaArc == PLASMA_ARC_START){               // запуск плазмы
-        gcodeProcess_plasmaStart();
-        progParams.plasmaArc = PLASMA_ARC_NONE;
-    } else if(progParams.plasmaArc == PLASMA_ARC_STOP){         // остановка плазмы
-        gcodeProcess_plasmaStop();
-        progParams.plasmaArc = PLASMA_ARC_NONE;
-    }
+    // if(progParams.plasmaArc == PLASMA_ARC_START){               // запуск плазмы
+    //     gcodeProcess_plasmaStart();
+    //     progParams.plasmaArc = PLASMA_ARC_NONE;
+    // } else if(progParams.plasmaArc == PLASMA_ARC_STOP){         // остановка плазмы
+    //     gcodeProcess_plasmaStop();
+    //     progParams.plasmaArc = PLASMA_ARC_NONE;
+    // }
 
 
 }
@@ -331,11 +333,11 @@ bool CncRouter::gcodeProcessCommand_G(uint8_t value, GcodeFrameSubData *frame, u
         case 30:    // G30 - Поднятие по оси Z на точку смены инструмента
         case 31:    // G31 - Подача до пропуска
         case 40:    // G40 - Отмена компенсации радиуса инструмента
-            progParams.compensationRadius.type = COMPENSATION_NONE;
+            progParams.compensationRadius.type = GCodeCR::COMPENSATION_NONE;
             progParams.compensationRadius.value = 0.0;
             break;
         case 41:    // G41 - Компенсировать радиус инструмента слева от траектории
-            progParams.compensationRadius.type = COMPENSATION_LEFT;
+            progParams.compensationRadius.type = GCodeCR::COMPENSATION_LEFT;
             progParams.compensationRadius.value = 1.0;      // радиус по умолчанию
             for(uint8_t i=0; i<frameLength; i++){
                 GcodeFrameSubData *el = frame+i;
@@ -349,7 +351,7 @@ bool CncRouter::gcodeProcessCommand_G(uint8_t value, GcodeFrameSubData *frame, u
             }
             break;
         case 42:    // G42 - Компенсировать радиус инструмента справа от траектории
-            progParams.compensationRadius.type = COMPENSATION_RIGHT;
+            progParams.compensationRadius.type = GCodeCR::COMPENSATION_RIGHT;
             progParams.compensationRadius.value = 1.0;      // радиус по умолчанию
             for(uint8_t i=0; i<frameLength; i++){
                 GcodeFrameSubData *el = frame+i;
@@ -363,16 +365,16 @@ bool CncRouter::gcodeProcessCommand_G(uint8_t value, GcodeFrameSubData *frame, u
             }
             break;
         case 43:    // G43 - Компенсировать длину инструмента положительно
-            progParams.compensationLength.type = COMPENSATION_POS;
-            progParams.compensationLength.value = 0.0;
+            // progParams.compensationLength.type = COMPENSATION_POS;
+            // progParams.compensationLength.value = 0.0;
             break;
         case 44:    // G44 - Компенсировать длину инструмента отрицательно
-            progParams.compensationLength.type = COMPENSATION_NEG;
-            progParams.compensationLength.value = 0.0;
+            // progParams.compensationLength.type = COMPENSATION_NEG;
+            // progParams.compensationLength.value = 0.0;
             break;
         case 49:    // G49 - Отмена компенсации длины инструмента
-            progParams.compensationLength.type = COMPENSATION_NONE;
-            progParams.compensationLength.value = 0.0;
+            // progParams.compensationLength.type = COMPENSATION_NONE;
+            // progParams.compensationLength.value = 0.0;
             break;
         case 50:    // G50 - Сброс всех масштабирующих коэффициентов в 1.0
         case 51:    // G51 - Назначение масштабов
@@ -455,6 +457,14 @@ void CncRouter::gcodeRecalcCoords(float targetX, float targetY, float targetZ){
     progParams.currentCoord.x = targetX;
     progParams.currentCoord.y = targetY;
     progParams.currentCoord.z = targetZ;
+}
+
+/**
+ * Пересчёт текущих координат
+ * @param target целевая точка
+ */
+void CncRouter::gcodeRecalcCoords(GcodeCoord *target){
+    memcpy(&progParams.currentCoord, target, sizeof(GcodeCoord));
 }
 
 /**
@@ -848,6 +858,10 @@ void CncRouter::gcodeTask(void *arg){
 
     uint32_t numLine = 0;       // номер строки
 
+    GcodeCoord targetPoint;
+    MoveParams *pMoveParams[2] = {NULL, NULL};
+    GcodeCoord p2;
+
     for(;;){
         uint8_t sDataInd = 0;
         frameLength = 0;
@@ -931,12 +945,61 @@ void CncRouter::gcodeTask(void *arg){
             gcodeFramePtrOffset += 16;
         }
 
-        instance->gcodeProcessFrame(frame, frameLength);
+        if(instance->gcodeProcessFrame(frame, frameLength)){
+            ProgParams *pParams = new ProgParams();
+            memcpy(pParams, instance->getProgParams(), sizeof(ProgParams));
+
+            targetPoint.x = pParams->targetCoord.x + pParams->systemCoord.x;
+            targetPoint.y = pParams->targetCoord.y + pParams->systemCoord.y;
+            targetPoint.z = pParams->targetCoord.z + pParams->systemCoord.z;
+
+            // printf("targetPoint: x=%f, y=%f \n", targetPoint.x, targetPoint.y);
+
+            if(pMoveParams[0] != NULL){
+
+                uint8_t count = 1 + (pMoveParams[1] != NULL ? 1 : 0);
+                memcpy(&p2, &(pMoveParams[count-1]->target), sizeof(GcodeCoord));
+                if(!gcodeProcess_pointsIsEqual(&targetPoint, &p2)){
+                    if(count == 2){
+                        memcpy(pMoveParams[0], pMoveParams[1], sizeof(MoveParams));
+                    }
+                    MoveParams *mp1 = new MoveParams();
+                    mp1->target = targetPoint;
+                    mp1->pParams = *pParams;
+                    pMoveParams[1] = mp1;
+
+                    instance->gcodeProcessMove(pMoveParams[0], pMoveParams[1]);
+                    instance->gcodeRecalcCoords(&targetPoint);
+                }
+
+            } else{
+                MoveParams *mp0 = new MoveParams();
+                mp0->target = targetPoint;
+                mp0->pParams = *pParams;
+                pMoveParams[0] = mp0;
+                instance->gcodeRecalcCoords(&targetPoint);
+            }
+
+        }
 
         gcodeFramePtrOffset += 16;
 
         if(gcodeFramePtrOffset >= size){
             // достигнут конец программы
+
+            if(pMoveParams[0] != NULL && pMoveParams[1] != NULL){
+                memcpy(pMoveParams[0], pMoveParams[1], sizeof(MoveParams));
+
+                instance->gcodeProcessMove(pMoveParams[0], NULL);
+                instance->gcodeRecalcCoords(&targetPoint);
+
+                // free(&(pMoveParams[0]));
+                // free(&(pMoveParams[1]));
+
+                // pMoveParams[0] = NULL;
+                // pMoveParams[1] = NULL;
+            }
+
             // завершаем задачу
             printf("CncRouter::gcodeTask FINISH \n");
             vTaskDelete(NULL);
@@ -949,6 +1012,211 @@ void CncRouter::gcodeTask(void *arg){
  */
 CncRouter::ProgParams* CncRouter::getProgParams(){
     return &progParams;
+}
+
+/**
+ * Определение являются ли две точки с одними координатами
+ * @param p1 первая точка
+ * @param p2 вторая точка
+ */
+bool CncRouter::gcodeProcess_pointsIsEqual(GcodeCoord *p1, GcodeCoord *p2){
+    return 
+        p1->x == p2->x &&
+        p1->y == p2->y &&
+        p1->z == p2->z &&
+        p1->a == p2->a &&
+        p1->b == p2->b &&
+        p1->c == p2->c
+    ;
+}
+
+void CncRouter::gcodeProcessMove(MoveParams *pMoveParams, MoveParams *pMoveNextParams){
+    ProgParams pParams = pMoveParams->pParams;
+    if(pParams.runType == RUN_FAST || pParams.runType == RUN_WORK_LINEAR){
+        gcodeProcess_drawLine(pMoveParams, pMoveNextParams);
+    } else if(pParams.runType == RUN_WORK_CW || pParams.runType == RUN_WORK_CCW){
+        gcodeProcess_drawCircle(pMoveParams, pMoveNextParams);
+    }
+}
+
+/**
+ * Программа GCode.
+ * Рисование прямой линии.
+ * 
+ */
+void CncRouter::gcodeProcess_drawLine(MoveParams *pMoveParams, MoveParams *pMoveNextParams){
+    printf("CncRouter::gcodeProcess_drawLine %f, %f \n", pMoveParams->target.x, pMoveParams->target.y);
+
+    ProgParams pParams = pMoveParams->pParams;
+    float speed = pMoveParams->pParams.speed;
+
+    GCode::PointXY p1 = {
+        .x = pParams.currentCoord.x + pParams.userZeroPoint.x,
+        .y = pParams.currentCoord.y + pParams.userZeroPoint.y
+    };
+
+    GCode::PointXY p2 = {
+        .x = pMoveParams->target.x + pParams.userZeroPoint.x,
+        .y = pMoveParams->target.y + pParams.userZeroPoint.y
+    };
+
+    // GcodeCoord *p1 = new GcodeCoord();
+    // p1->x = pParams.currentCoord.x + pParams.userZeroPoint.x;
+    // p1->y = pParams.currentCoord.y + pParams.userZeroPoint.y;
+
+    // GcodeCoord *p2 = new GcodeCoord();
+    // p2->x = pMoveParams->target.x + pParams.userZeroPoint.x;
+    // p2->y = pMoveParams->target.y + pParams.userZeroPoint.y;
+
+    // gotoTargetMM(&pMoveParams->target, &pMoveParams->pParams.currentCoord, speed, CncRouter::gcodeGotoFinish);
+    if(pParams.compensationRadius.type == GCodeCR::COMPENSATION_NONE){
+        gotoTargetMM(&pMoveParams->target, &pParams.currentCoord, speed, CncRouter::gcodeGotoFinish);
+
+    } else if(pParams.runType != RUN_FAST && pParams.compensationRadius.type != GCodeCR::COMPENSATION_NONE){
+        GCodeCR::COMPENSATION_TYPE side = pParams.compensationRadius.type;
+        float length = pParams.compensationRadius.value;
+
+        if(side == GCodeCR::COMPENSATION_LEFT){
+            lastPath.left = gcodeProcess_drawLineOffset(&p1, &p2, length, side, speed);
+        } else{
+            lastPath.right = gcodeProcess_drawLineOffset(&p1, &p2, length, side, speed);
+        }
+
+        lastPath.path = {
+            .exists = true,
+            .type = TYPE_LINE,
+            .side = side
+        };
+
+    } else{
+
+        if(lastPath.path.exists){
+            GCodeCR::COMPENSATION_TYPE side = lastPath.path.side;
+            LastPathBySide lastPathBySide = side == GCodeCR::COMPENSATION_LEFT ? lastPath.left : lastPath.right;
+            if(lastPathBySide.exists){
+                if(lastPath.path.type == TYPE_LINE){
+
+                    GCode::PointXY *p3 = lastPathBySide.lastEndPoint != NULL ? lastPathBySide.lastEndPoint : &lastPathBySide.p1;
+                    GCode::PointXY *p4 = &lastPathBySide.p2;
+
+                    gotoTargetMM(p4, p3, speed, CncRouter::gcodeGotoFinish);
+                    gotoTargetMM(&p1, p4, speed, CncRouter::gcodeGotoFinish);
+
+                } else if(lastPath.path.type == TYPE_CIRCLE){
+
+                    // LastPathBySideCircle
+
+                    
+                }
+
+            }
+        }
+
+        lastPath.path.exists = false;
+        lastPath.left.exists = false;
+        lastPath.right.exists = false;
+    }
+
+
+
+}
+
+
+CncRouter::LastPathBySide CncRouter::gcodeProcess_drawLineOffset(GCode::PointXY *p1, GCode::PointXY *p2, float length, GCodeCR::COMPENSATION_TYPE side, float speed){
+    // LastPathBySide ret;
+
+// let { p1p, p2p, anglePerp } = GCodeCR.calcLineOffset(p1, p2, length, side);
+    GCodeCR::LineOffset lineOffset = GCodeCR::calcLineOffset(p1, p2, length, side);
+    GCode::PointXY p1p = lineOffset.p1p;
+    GCode::PointXY p2p = lineOffset.p2p;
+    float anglePerp = lineOffset.anglePerp;
+
+    GCode::PointXY *lastEndPoint = NULL;
+
+    if(lastPath.path.exists){
+
+        LastPathBySide lastPathBySide = side == GCodeCR::COMPENSATION_LEFT ? lastPath.left : lastPath.right;
+        lastEndPoint = lastPathBySide.lastEndPoint;
+
+        if(lastEndPoint == NULL){
+            lastEndPoint = &lastPathBySide.p1;
+        }
+
+        if(lastPath.path.type == TYPE_LINE){
+
+                    // точка пересечения отрезка на предыдущем участке пути и
+                    // отрезком на текущем
+            GCodeCR::CrossPoint crossPoint;
+            bool crossPointFounded = false;
+            try{
+                // crossPoint = GCodeCR::calcCrossLineCircle(&lastPathBySide.p1, &lastPathBySide.p2, )
+                crossPoint = GCodeCR::calcCrossLines(&lastPathBySide.p1, &lastPathBySide.p2, &p1p, &p2p);
+                crossPointFounded = true;
+            } catch(const std::runtime_error& error){
+            }
+
+            if(crossPointFounded && crossPoint.inner){       // точка пересечения внутри
+
+                // отрезок на предыдущем участке пути
+                // до точки пересечения отрезков
+                gotoTargetMM(&crossPoint.point, lastEndPoint, speed, CncRouter::gcodeGotoFinish);
+
+            } else{                     // окружность снаружи
+
+                // отрезок на предыдущем участке пути
+                // до конечной точки этого отрезка
+                gotoTargetMM(&lastPathBySide.p2, lastEndPoint, speed, CncRouter::gcodeGotoFinish);
+
+                if(!GCode::pointsIsEqual(p1, p2)){
+                    // соединяющий сегмент окружности
+
+                    float angle3 = lastPathBySide.anglePerp;
+                    float angle4 = anglePerp;
+
+                    if(abs(angle4-angle3) >= 0.0174 && abs(angle4-angle3) <= 6.2657){       // > 1 градуса
+// _ctx.arc(p1.x, p1.y, length, angle3, angle4, side === COMPENSATION_LEFT ? true : false);
+                        // gcodeCircleParams.
+                        // gcodeProcess_drawCircle(&gcodeCircleParams);
+                    }
+
+                }
+
+
+
+            }
+
+            lastEndPoint = crossPointFounded && crossPoint.inner ? &crossPoint.point : NULL;
+
+        } else if(lastPath.path.type == TYPE_CIRCLE){
+
+
+
+        }
+
+    } else{
+        // переход к точке коррекции радиуса инструмента
+        gotoTargetMM(&p1p, p1, speed, CncRouter::gcodeGotoFinish);
+
+    }
+
+    LastPathBySide ret = {
+        .exists = true,
+        .p1 = p1p, 
+        .p2 = p2p,
+        .anglePerp = anglePerp,
+        .lastEndPoint = lastEndPoint
+    };
+    return ret;
+}
+
+
+/**
+ * Программа GCode.
+ * Рисование окружности.
+ * 
+ */
+void CncRouter::gcodeProcess_drawCircle(MoveParams *pMoveParams, MoveParams *pMoveNextParams){
+
 }
 
 

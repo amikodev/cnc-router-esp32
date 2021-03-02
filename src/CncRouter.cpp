@@ -22,12 +22,18 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 CncRouter* CncRouter::instance = NULL;
 
+uint32_t CncRouter::currentNumLine = 0;
+TaskHandle_t CncRouter::_currentGCodeTask = NULL;
+// CncRouter::WsData CncRouter::wsData;
+
 xQueueHandle CncRouter::input0EvtQueue = NULL;
 xQueueHandle CncRouter::wsSendEvtQueue = NULL;
+xQueueHandle CncRouter::wsSendCustomEvtQueue = NULL;
 
 
 
 
+const uint8_t CncRouter::WS_OBJ_NAME_CNC_ROUTER = 0x4F;
 const uint8_t CncRouter::WS_OBJ_NAME_CNC_GCODE = 0x50;
 const uint8_t CncRouter::WS_OBJ_NAME_CNC_GCODE_PREPARE = 0x51;
 const uint8_t CncRouter::WS_OBJ_NAME_AXE = 0x52;
@@ -46,6 +52,7 @@ const uint8_t CncRouter::WS_AXE_DIRECTION_BACKWARD = 0x02;
 
 const uint8_t CncRouter::WS_PREPARE_SIZE = 0x01;
 const uint8_t CncRouter::WS_PREPARE_RUN = 0x02;
+const uint8_t CncRouter::WS_PREPARE_STOP = 0x03;
 
 const uint8_t CncRouter::WS_PLASMA_ARC_START = 0x01;
 const uint8_t CncRouter::WS_PLASMA_ARC_STARTED = 0x02;
@@ -55,38 +62,31 @@ const uint8_t CncRouter::WS_PLASMA_ARC_VOLTAGE = 0x03;
 
 /**
  * Конструктор
- * @param axesCount количество осей
  */
 CncRouter::CncRouter(){
 
     instance = this;
 
-    // if(axesCount == Axe::AXES_NC){
-    //     return;
-    // }
-
-    // _axesCount = axesCount;
-    // if(axesCount >= Axe::AXES_1)
-    //     _x = new StepDriver();
-    // if(axesCount >= Axe::AXES_2)
-    //     _y = new StepDriver();
-    // if(axesCount >= Axe::AXES_3)
-    //     _z = new StepDriver();
-    // if(axesCount >= Axe::AXES_4)
-    //     _a = new StepDriver();
-    // if(axesCount >= Axe::AXES_5)
-    //     _b = new StepDriver();
-    // if(axesCount >= Axe::AXES_6)
-    //     _c = new StepDriver();
-
     // создание очереди и запуск задачи для обработки прерываний со входов
     CncRouter::input0EvtQueue = xQueueCreate(10, sizeof(Input0Interrupt));
     xTaskCreate(CncRouter::input0Task, "input0Task", 2048, NULL, 10, NULL);
 
-    // 
+    // очередь и задача по отправке данных клиенту
     void *ptr;
     CncRouter::wsSendEvtQueue = xQueueCreate(10, sizeof(ptr));
     xTaskCreate(CncRouter::wsSendTask, "wsSendTask", 2048, NULL, 10, NULL);
+
+    // очередь и задача по отправке данных произвольного размера клиенту
+
+    CncRouter::wsSendCustomEvtQueue = xQueueCreate(10, sizeof(WsData));
+    xTaskCreate(CncRouter::wsSendCustomTask, "wsSendCustomTask", 2048, NULL, 10, NULL);
+
+    // задача по отправке номера строки клиенту
+    GCode::setNotifyNumLineFunc(notifyGcodeNumLine);
+    xTaskCreate(CncRouter::currentNumLineTask, "currentNumLine", 2048, NULL, 10, NULL);
+
+    // уведомление о завершении выполнения программы gcode
+    GCode::setNotifyFinishFunc(notifyGcodeFinish);
 
 }
 
@@ -96,170 +96,6 @@ CncRouter::CncRouter(){
 CncRouter* CncRouter::getInstance(){
     return instance;
 }
-
-// /**
-//  * Получение объекта оси
-//  * @param axe ось
-//  */
-// StepDriver* CncRouter::getAxe(Axe::AXE axe){
-//     StepDriver *sd = NULL;
-//     switch(axe){
-//         case Axe::AXE_X:
-//             sd = _x;
-//             break;
-//         case Axe::AXE_Y:
-//             sd = _y;
-//             break;
-//         case Axe::AXE_Z:
-//             sd = _z;
-//             break;
-//         case Axe::AXE_A:
-//             sd = _a;
-//             break;
-//         case Axe::AXE_B:
-//             sd = _b;
-//             break;
-//         case Axe::AXE_C:
-//             sd = _c;
-//             break;
-//         default:
-//             break;
-//     }
-
-//     if(sd == NULL){
-        
-//     }
-
-//     return sd;
-// }
-
-// /**
-//  * Перемещение до целевой позиции
-//  * @param axe ось
-//  * @param targetMM целевая позиция, в мм
-//  * @param speedMmSec скорость, мм/сек
-//  * @param funcFinish функция вызываемая при окончании перемещения по оси
-//  */
-// void CncRouter::gotoTargetMM(Axe::AXE axe, float targetMM, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
-
-//     StepDriver *sd = Axe::getStepDriver(axe);
-//     StepDriver::MotorTarget *mt = sd->calcTarget(targetMM, speedMmSec);
-
-//     if(mt != NULL){
-//         mt->cPulse = 0;
-//         mt->callbackFinish = funcFinish;
-
-//         esp_timer_create_args_t timerRunArgs = {
-//             .callback = &StepDriver::timerRunCallback,
-//             .arg = (void *)mt,
-//             .name = "axe_"+sd->getLetter()
-//         };
-
-//         esp_timer_handle_t timerRun;
-//         ESP_ERROR_CHECK(esp_timer_create(&timerRunArgs, &timerRun));
-
-//         mt->axe->setTimerRun(timerRun);
-
-//         uint64_t mksStep = mt->mksStep;
-//         if(mksStep < 50) mksStep = 50;
-//         // printf("mksStep: %llu \n", mksStep);
-
-//         sd->setDirection(mt->dir);
-//         ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
-//     }
-// }
-
-// /**
-//  * Перемещение до целевой позиции
-//  * @param target целевая точка
-//  * @param current текущая точка
-//  * @param speedMmSec скорость, мм/сек
-//  * @param funcFinish функция вызываемая при окончании перемещения по оси
-//  */
-// void CncRouter::gotoTargetMM(GcodeCoord *target, GcodeCoord *current, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
-
-//     float speed = speedMmSec;
-
-//     float dx = target->x - current->x;
-//     float dy = target->y - current->y;
-//     float dz = target->z - current->z;
-
-//     if(abs(dx) < 0.01) dx = 0.0;
-//     if(abs(dy) < 0.01) dy = 0.0;
-//     if(abs(dz) < 0.01) dz = 0.0;
-
-//     float length = 0.0;
-//     if(dx != 0) length += dx*dx;
-//     if(dy != 0) length += dy*dy;
-//     if(dz != 0) length += dz*dz;
-//     length = sqrt(length);
-
-//     if(dx != 0){
-//         progParams.finishCount++;
-//         float spX = abs(dx)/length*speed;    // разложенная скорость по оси X
-//         gotoTargetMM(AXE_X, target->x, spX, funcFinish);
-//     }
-//     if(dy!= 0){
-//         progParams.finishCount++;
-//         float spY = abs(dy)/length*speed;    // разложенная скорость по оси Y
-//         gotoTargetMM(AXE_Y, target->y, spY, funcFinish);
-//     }
-//     if(dz != 0){
-//         progParams.finishCount++;
-//         float spZ = abs(dz)/length*speed;    // разложенная скорость по оси Z
-//         gotoTargetMM(AXE_Z, target->z, spZ, funcFinish);
-//     }
-
-//     if(progParams.finishCount > 0){
-//         vTaskSuspend(NULL);     // приостановить текущую задачу
-//     //     // переходим к следующему фрейму
-//     //     vTaskResume(CncRouter::gcodeTaskHandle);
-//     }
-
-
-
-// }
-
-// /**
-//  * Перемещение до целевой позиции
-//  * @param target целевая точка
-//  * @param current текущая точка
-//  * @param speedMmSec скорость, мм/сек
-//  * @param funcFinish функция вызываемая при окончании перемещения по оси
-//  */
-// void CncRouter::gotoTargetMM(GCode::PointXY *target, GCode::PointXY *current, float speedMmSec, std::function<void (StepDriver *sd)> funcFinish){
-//     float speed = speedMmSec;
-
-//     float dx = target->x - current->x;
-//     float dy = target->y - current->y;
-
-//     if(abs(dx) < 0.01) dx = 0.0;
-//     if(abs(dy) < 0.01) dy = 0.0;
-
-//     float length = 0.0;
-//     if(dx != 0) length += dx*dx;
-//     if(dy != 0) length += dy*dy;
-//     length = sqrt(length);
-
-//     if(dx != 0){
-//         progParams.finishCount++;
-//         float spX = abs(dx)/length*speed;    // разложенная скорость по оси X
-//         gotoTargetMM(AXE_X, target->x, spX, funcFinish);
-//     }
-//     if(dy!= 0){
-//         progParams.finishCount++;
-//         float spY = abs(dy)/length*speed;    // разложенная скорость по оси Y
-//         gotoTargetMM(AXE_Y, target->y, spY, funcFinish);
-//     }
-
-//     if(progParams.finishCount > 0){
-//         vTaskSuspend(NULL);     // приостановить текущую задачу
-//     //     // переходим к следующему фрейму
-//     //     vTaskResume(CncRouter::gcodeTaskHandle);
-//     }
-
-// }
-
 
 /**
  * Парсинг входящих данных по WebSocket
@@ -285,37 +121,30 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
 
                 StepDriver *sd = Axe::getStepDriver(axe);
                 if(dir == WS_AXE_DIRECTION_FORWARD || dir == WS_AXE_DIRECTION_BACKWARD){
-                    printf("WS_OBJ_NAME_AXE --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d \n", sd->getLetter(), dir, speed, runAfterLimit);
+                    ESP_LOGI(TAG, "WS_OBJ_NAME_AXE --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
                     sd->actionRunStop();
                     sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
-                    // instance->setMoveAxe(sd);
                 }
             } else if(*(data+1) == WS_CMD_STOP){
                 Axe::AXE axe = (Axe::AXE)(*(data+2));
 
                 StepDriver *sd = Axe::getStepDriver(axe);
-                printf("WS_OBJ_NAME_AXE --STOP-- axe: %c \n", sd->getLetter());
+                ESP_LOGI(TAG, "WS_OBJ_NAME_AXE --STOP-- axe: %c", sd->getLetter());
 
                 sd->actionRunStop();
-                // instance->setMoveAxe(NULL);
             }
 
         } else if(*(data) == WS_OBJ_NAME_CNC_GCODE_PREPARE){
             if(*(data+1) == WS_PREPARE_SIZE){
                 uint32_t size = *(data+2) + (*(data+3)<<8) + (*(data+4)<<16) + (*(data+5)<<24);
 
-                printf("Prepare size: %d \n", size);
-                // void *dataProg = heap_caps_malloc((size_t)size, 0);
-                // void *dataProg = calloc(size>>4, 16);
-                // GCode::setPtr(dataProg, size);
-                // instance->setGcodePtr(dataProg, size);
+                ESP_LOGI(TAG, "Prepare size: %d", size);
 
                 uint8_t dataResp[16] = {0};
                 dataResp[0] = WS_OBJ_NAME_CNC_GCODE_PREPARE;
                 dataResp[1] = WS_PREPARE_SIZE;
 
                 if(GCode::init(size)){
-                // if(dataProg != NULL){
                     // памяти для программы хватает, выделяем и отправляем ответ клиенту
                     dataResp[2] = 0x01;
                 } else{
@@ -339,6 +168,29 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                     dataResp[2] = 0x00;
                 }
                 xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+            } else if(*(data+1) == WS_PREPARE_STOP){
+                uint8_t dataResp[16] = {0};
+                dataResp[0] = WS_OBJ_NAME_CNC_GCODE_PREPARE;
+                dataResp[1] = WS_PREPARE_STOP;
+
+                if(GCode::isRunned()){
+                    // останавливаем программу
+                    GCode::stop();
+                    dataResp[2] = 0x01;
+                    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+
+                    // останавливаем плазму
+                    instance->getPlasma()->stop();
+                    memset(&dataResp, 0x00, 16);
+                    dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
+                    dataResp[1] = WS_PLASMA_ARC_START;
+                    dataResp[2] = WS_CMD_STOP;
+                    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+
+                } else{
+                    dataResp[2] = 0x00;
+                    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+                }
             }
         } else if(*(data) == WS_OBJ_NAME_CNC_GCODE){
             uint8_t dataResp[16] = {0};
@@ -351,7 +203,8 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                 // memcpy(&point.y, data+6, 4);
                 // memcpy(&point.z, data+10, 4);
                 memcpy(&point, data+2, 12);
-                float speed = 50; //300;       // mm/sec
+                float speed = GCode::getFastSpeed();        // mm/sec
+                if(speed == 0.0) speed = 50.0;
                 ActionMove::gotoPoint(&point, speed, NULL);
             }
         } 
@@ -359,6 +212,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
         // Plasma Arc
         else if(*(data) == WS_OBJ_NAME_PLASMA_ARC){
             uint8_t dataResp[16] = {0};
+            // Plasma *plasma = instance->getPlasma();
             dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
             if(*(data+1) == WS_PLASMA_ARC_START){
                 dataResp[1] = WS_PLASMA_ARC_START;
@@ -385,10 +239,58 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
             }
         }
 
+        // общая информация о контроллере
+        else if(*(data) == WS_OBJ_NAME_CNC_ROUTER){
+            uint8_t dataResp[48] = {0};
+            dataResp[0] = WS_OBJ_NAME_CNC_ROUTER;
+
+            dataResp[1] = EQUIPMENT_TYPE;
+            dataResp[2] = EQUIPMENT_SUBTYPE;
+
+            uint32_t version = VERSION;
+            memcpy((dataResp+3), &version, sizeof(uint32_t));
+
+            Plasma *plasma = instance->getPlasma();
+            if(plasma != NULL)
+                dataResp[7] = plasma->getArcStarted();
+
+            dataResp[8] = GCode::isRunnable();
+            dataResp[9] = GCode::isRunned();
+
+            // memset(&dataResp, 0x00, 16);
+            const char *equipmentTypeName = "CNCROUTER";
+            memcpy((dataResp+16), equipmentTypeName, std::min(16, (int)strlen(equipmentTypeName)));
+            const char *equipmentSubTypeName = "PLASMACUT";
+            memcpy((dataResp+32), equipmentSubTypeName, std::min(16, (int)strlen(equipmentSubTypeName)));
+
+            static WsData wsData = {
+                .size = 48,
+                // .data = (uint8_t *) &dataResp
+                .ptr = malloc(48)
+            };
+            memcpy(wsData.ptr, &dataResp, 48);
+
+            // wsData.size = 48;
+            // // wsData.ptr = dataResp;
+            // wsData.ptr = malloc(48);
+            // memcpy(wsData.ptr, &dataResp, 48);
+
+            // ESP_LOGI(TAG, "xQueueGenericSend: %p", wsData.ptr);
+            // ESP_LOG_BUFFER_HEXDUMP(TAG, (void *) wsData.ptr, wsData.size, ESP_LOG_INFO);
+
+            // memcpy(&wsData.ptr, &dataResp, 48);
+            // xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+            xQueueGenericSend(wsSendCustomEvtQueue, (void *) &wsData, (TickType_t) 0, queueSEND_TO_BACK);
+
+
+            // xTaskCreate(CncRouter::wsSendCustomTask, "wsSendCustomTask", 2048, (void *) &wsData, 10, NULL);
+
+
+        }
+
     } else if(length > 16){
         if(*(data) == WS_OBJ_NAME_CNC_GCODE){
             // первые 16 байт отбрасываются
-            // instance->gcodeAppend(data+16, length-16);
             GCode::append(data+16, length-16);
             uint8_t dataResp[16] = {0};
             dataResp[0] = WS_OBJ_NAME_CNC_GCODE;
@@ -509,35 +411,28 @@ void IRAM_ATTR CncRouter::input0IsrHandler(void *arg){
  */
 void CncRouter::input0Task(void *arg){
     Input0Interrupt *ii = new Input0Interrupt();
+    int level = -1;
     for(;;){
         if(xQueueReceive(input0EvtQueue, ii, portMAX_DELAY)){
             switch(ii->type){
                 case INPUT0_LIMITS:
-                    {
-                        int level = gpio_get_level(instance->getPinLimits());
-                        printf("Limits interrupt: %d\n", level);
-                    }
+                    level = gpio_get_level(instance->getPinLimits());
+                    ESP_LOGI(TAG, "Limits interrupt: %d", level);
                     break;
                 case INPUT0_HOMES:
-                    {
-                        int level = gpio_get_level(instance->getPinHomes());
-                        printf("Homes interrupt: %d\n", level);
-                    }
+                    level = gpio_get_level(instance->getPinHomes());
+                    ESP_LOGI(TAG, "Homes interrupt: %d", level);
                     break;
                 case INPUT0_PROBE:
-                    {
-                        int level = gpio_get_level(instance->getPinProbe());
-                        printf("Probe interrupt: %d\n", level);
-                    }
+                    level = gpio_get_level(instance->getPinProbe());
+                    ESP_LOGI(TAG, "Probe interrupt: %d", level);
                     break;
                 case INPUT0_ESTOP:
-                    {
-                        int level = gpio_get_level(instance->getPinEStop());
-                        printf("EStop interrupt: %d\n", level);
-                    }
+                    level = gpio_get_level(instance->getPinEStop());
+                    ESP_LOGI(TAG, "EStop interrupt: %d", level);
                     break;
                 default:
-                    printf("Unknown interrupt \n");
+                    ESP_LOGI(TAG, "Unknown interrupt");
                     break;
             }
             // int level = gpio_get_level(pinLimit);
@@ -558,14 +453,6 @@ void CncRouter::setProbeAxe(StepDriver *axe){
     probeAxe = axe;
 }
 
-// /**
-//  * Установка оси для простого перемещения
-//  * @param axe ось
-//  */
-// void CncRouter::setMoveAxe(StepDriver *axe){
-//     moveAxe = axe;
-// }
-
 /**
  * 
  */
@@ -573,7 +460,6 @@ void CncRouter::wsSendTask(void *arg){
     uint8_t data[16] = {0};
     for(;;){
         if(xQueueReceive(wsSendEvtQueue, &data, portMAX_DELAY)){
-            // printf("wsSendTask: %d %d %d %d %d %d %d %d  \n", data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]);
             ws_server_send_bin_all((char *)&data, 16);
         }
     }
@@ -582,8 +468,21 @@ void CncRouter::wsSendTask(void *arg){
 /**
  * 
  */
+void CncRouter::wsSendCustomTask(void *arg){
+    WsData *wsData = new WsData();
+    for(;;){
+        if(xQueueReceive(wsSendCustomEvtQueue, wsData, portMAX_DELAY)){
+            ws_server_send_bin_all((char *) wsData->ptr, wsData->size);
+            // free(wsData->ptr);
+        }
+    }
+}
+
+/**
+ * 
+ */
 void CncRouter::currentPointTask(void *arg){
-    uint8_t data[16] = {0};
+    uint8_t data[32] = {0};
 
     data[0] = WS_OBJ_NAME_COORDS;
     data[1] = WS_CMD_READ;
@@ -591,20 +490,28 @@ void CncRouter::currentPointTask(void *arg){
     Geometry::Point _lastPoint;
     Geometry::Point _currentPoint;
 
+    std::function<float (Axe::AXE)> getPosByAxe = [&](Axe::AXE axe)->float{
+        StepDriver *sd = Axe::getStepDriver(axe);
+        float pos = (sd != NULL && !sd->getIsSynced()) ? sd->getPositionMM() : 0.0;
+        return pos;
+    };
+
     for(;;){
-        _currentPoint.x = Axe::getStepDriver(Axe::AXE_X)->getPositionMM();
-        _currentPoint.y = Axe::getStepDriver(Axe::AXE_Y)->getPositionMM();
-        _currentPoint.z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
-        // _currentPoint.a = Axe::getStepDriver(Axe::AXE_A)->getPositionMM();
-        // _currentPoint.b = Axe::getStepDriver(Axe::AXE_B)->getPositionMM();
-        // _currentPoint.c = Axe::getStepDriver(Axe::AXE_C)->getPositionMM();
+        _currentPoint.x = getPosByAxe(Axe::AXE_X);
+        _currentPoint.y = getPosByAxe(Axe::AXE_Y);
+        _currentPoint.z = getPosByAxe(Axe::AXE_Z);
+        _currentPoint.a = getPosByAxe(Axe::AXE_A);
+        _currentPoint.b = getPosByAxe(Axe::AXE_B);
+        _currentPoint.c = getPosByAxe(Axe::AXE_C);
 
         if(!Geometry::pointsIsEqual(&_lastPoint, &_currentPoint)){
-            memcpy((data+2), &_currentPoint, 4*3);      // отправка координат x, y, z
-            ws_server_send_bin_all((char *)data, 16);
+            memcpy((data+2), &_currentPoint, 4*3);          // отправка координат x, y, z
+            data[15] = 0x01;                                // продолжение данных в следующих 16 байтах
+            memcpy((data+16), ((void *) ( ((uint8_t *)&_currentPoint)+12 )), 4*3);    // отправка координат a, b, c
+            ws_server_send_bin_all((char *)data, 32);
             vTaskDelay(pdMS_TO_TICKS(200));
         } else{
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
         memcpy(&_lastPoint, &_currentPoint, sizeof(Geometry::Point));
     }
@@ -614,18 +521,8 @@ void CncRouter::currentPointTask(void *arg){
  * Запустить задачу уведомления об изменении текущих координат
  */
 void CncRouter::enableCurrentPointNotify(){
-    // 
     xTaskCreate(CncRouter::currentPointTask, "currentPointTask", 2048, NULL, 10, NULL);
 }
-
-
-
-// /**
-//  * Получение текущих координат
-//  */
-// GcodeCoord* CncRouter::getCurrentCoord(){
-//     return progParams.currentCoord;
-// }
 
 /**
  * Установка плазмы
@@ -646,28 +543,66 @@ Plasma* CncRouter::getPlasma(){
 /**
  * Функция обратного вызова при изменении значения вывода флага рабочего режима дуги плазмы
  */
-void CncRouter::plasmaArcStartedCallback(bool started){
-    printf("CncRouter::plasmaArcStartedCallback: %d \n", started);
+void CncRouter::plasmaArcStartedCallback(bool started, bool notifyIfStart){
+    ESP_LOGI(TAG, "plasmaArcStartedCallback: %d", started);
     uint8_t dataResp[16] = {0};
     dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
     dataResp[1] = WS_PLASMA_ARC_STARTED;
     dataResp[2] = (uint8_t) started;
     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
 
-    // ProgParams *progParams = instance->getProgParams();
-    // if(started && progParams->plasmaArc == PLASMA_ARC_START){
-    //     // возобновление основной задачи gcode
-    //     vTaskResume(gcodeTaskHandle);
-    // }
+    if(started && notifyIfStart && GCode::gcodeTaskHandle != NULL){
+        // возобновление основной задачи gcode
+        vTaskResume(GCode::gcodeTaskHandle);
+    }
+}
+
+/**
+ * Отправка номера строки gcode клиенту
+ */
+void CncRouter::notifyGcodeNumLine(uint32_t numLine){
+    currentNumLine = numLine;
+}
+
+/**
+ * 
+ */
+void CncRouter::currentNumLineTask(void *arg){
+    uint8_t data[16] = {0};
+    data[0] = WS_OBJ_NAME_CNC_GCODE;
+
+    uint32_t lastNumLine = 0;
+
+    for(;;){
+        if(lastNumLine != currentNumLine){
+            data[1] = (currentNumLine & 0xFF);
+            data[2] = (currentNumLine >> 8);
+            ws_server_send_bin_all((char *)data, 16);
+            vTaskDelay(pdMS_TO_TICKS(200));
+        } else{
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+    // // xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+}
+
+/**
+ * Уведомление о завершении выполнения программы gcode
+ */
+void CncRouter::notifyGcodeFinish(){
+    uint8_t dataResp[16] = {0};
+    dataResp[0] = WS_OBJ_NAME_CNC_GCODE_PREPARE;
+    dataResp[1] = WS_PREPARE_STOP;
+    dataResp[2] = 0x01;
+    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+
+    memset(&dataResp, 0x00, 16);
+    dataResp[0] = WS_OBJ_NAME_CNC_GCODE_PREPARE;
+    dataResp[1] = WS_PREPARE_RUN;
+    dataResp[2] = 0x00;
+    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
 
 }
 
-// /**
-//  * Установка тестового прогона программы gcode
-//  * @param checked тестовый прогон программы gcode
-//  */
-// void CncRouter::setTestRunChecked(bool checked){
-//     _testRunChecked = checked;
-// }
 
 

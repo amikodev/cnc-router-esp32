@@ -18,6 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "Plasma.hpp"
 
+#define TAG "Plasma"
+
 Plasma* Plasma::instance = NULL;
 
 xQueueHandle Plasma::arcStartedEvtQueue = NULL;
@@ -118,12 +120,14 @@ void Plasma::arcStartedTask(void *arg){
 void Plasma::arcInterrupt(int level){
     if(currentArcValue != level){
         currentArcValue = level;
-        printf("Plasma arc started interrupt: level: %d, started: %d \n", level, getArcStarted());
+        ESP_LOGI(TAG, "Arc started interrupt: level: %d, started: %d", level, getArcStarted());
         if(arcStartedFunc != NULL){
-            arcStartedFunc(getArcStarted());
+            arcStartedFunc(getArcStarted(), notifyIfStart);
+        }
+        if(getArcStarted()){
+            notifyIfStart = false;
         }
     }
-
 }
 
 /**
@@ -131,7 +135,8 @@ void Plasma::arcInterrupt(int level){
  */
 void Plasma::start(){
     gpio_set_level(_pinStart, !isInverseStart ? 1 : 0);
-    printf("Plasma arc do start \n");
+    notifyIfStart = true;
+    ESP_LOGI(TAG, "Arc do start");
 }
 
 /**
@@ -139,7 +144,7 @@ void Plasma::start(){
  */
 void Plasma::stop(){
     gpio_set_level(_pinStart, !isInverseStart ? 0 : 1);
-    printf("Plasma arc do stop \n");
+    ESP_LOGI(TAG, "Arc do stop");
 }
 
 /**

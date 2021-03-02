@@ -23,6 +23,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "freertos/task.h"
 #include "freertos/queue.h"
 
+#include "esp_log.h"
+
 #include "driver/gpio.h"
 
 
@@ -32,7 +34,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 class Plasma{
 public:
 
-    typedef void (*ArcStartedFunc)(bool started);
+    typedef void (*ArcStartedFunc)(bool started, bool notifyIfStart);
+
+    enum PLASMA_ARC{
+        PLASMA_ARC_NONE = 0,
+        PLASMA_ARC_START,
+        PLASMA_ARC_STOP
+    };
 
     
 private:
@@ -49,6 +57,7 @@ private:
     ArcStartedFunc arcStartedFunc = NULL;
 
     bool isInverseStart = false;
+    bool notifyIfStart = false;
 
 
 public:

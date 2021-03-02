@@ -6,7 +6,6 @@ set(app_sources
     "ActionMove.cpp"
 	"StepDriver.cpp"
 	"CncRouter.cpp"
-#    "CncRouter_gcode.cpp"
     "gcode/GCode.cpp"
     "gcode/GCodeCR.cpp"
     "Plasma.cpp"

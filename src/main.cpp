@@ -110,6 +110,10 @@ void app_main() {
     plasma->setInverseStart(true);
     plasma->stop();
     router->setPlasma(plasma);
+    GCode::setPlasma(plasma);
+
+    GCode::setFastSpeed(70.0);
+    GCode::setWorkSpeed(50.0);
 
     // Wifi
     Wifi wifi;

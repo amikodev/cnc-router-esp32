@@ -74,6 +74,7 @@ Geometry::LineSegment Geometry::calcLineSegmentOffset(PointXY *p1, PointXY *p2, 
  * @param segment1 первый отрезок
  * @param segment2 второй отрезок
  * @return точка пересечения
+ * @throw
  */
 Geometry::IntersectPoint Geometry::calcIntersectLineSegments(LineSegment *segment1, LineSegment *segment2){
 
@@ -234,26 +235,7 @@ Geometry::CircleSegment Geometry::calcCircleByInc(PointXY *p1, PointXY *p2, floa
  */
 Geometry::CircleSegment Geometry::calcCircleOffset(PointXY *p1, PointXY *p2, float r, float ccw, float length, bool isLeftSide){
     CircleSegment circle = calcCircleByRadius(p1, p2, r, ccw);
-
     return calcCircleOffset(&circle, length, isLeftSide);
-
-    // if( (!ccw && isLeftSide) || (ccw && !isLeftSide) )
-    //     circle.r += length;
-    // else 
-    //     circle.r -= length;
-
-    // PointXY p1p = {
-    //     .x = circle.center.x + (float)cos(circle.angle1) * circle.r,
-    //     .y = circle.center.y + (float)sin(circle.angle1) * circle.r
-    // };
-    // PointXY p2p = {
-    //     .x = circle.center.x + (float)cos(circle.angle2) * circle.r,
-    //     .y = circle.center.y + (float)sin(circle.angle2) * circle.r
-    // };
-
-    // circle.p1 = p1p;
-    // circle.p2 = p2p;
-    // return circle;
 }
 
 /**
@@ -264,8 +246,6 @@ Geometry::CircleSegment Geometry::calcCircleOffset(PointXY *p1, PointXY *p2, flo
  * @return параметры сегмента окружности
  */
 Geometry::CircleSegment Geometry::calcCircleOffset(CircleSegment *circleOriginal, float length, bool isLeftSide){
-    // return calcCircleOffset(&circle->p1, &circle->p2, circle->r, circle->ccw, length, isLeftSide);
-
     CircleSegment circle;
     memcpy(&circle, circleOriginal, sizeof(CircleSegment));
 
@@ -286,8 +266,6 @@ Geometry::CircleSegment Geometry::calcCircleOffset(CircleSegment *circleOriginal
     circle.p1 = p1p;
     circle.p2 = p2p;
     return circle;
-
-
 }
 
 /**
@@ -295,7 +273,8 @@ Geometry::CircleSegment Geometry::calcCircleOffset(CircleSegment *circleOriginal
  * @param segment отрезок
  * @param circle сегмент окружности, полученный из методов calcCircleByRadius, calcCircleByInc, calcCircleOffset
  * @return точка пересечения
- */
+ * @throw
+*/
 Geometry::IntersectPoint Geometry::calcIntersectLineCircle(LineSegment *segment, CircleSegment *circle){
     IntersectPoint intersectPoint;
 
@@ -421,6 +400,7 @@ Geometry::IntersectCircles Geometry::getIntersectCircles(CircleSegment *circle1,
  * Нахождение точки пересечения двух окружностей
  * @param circle1 первая окружность, полученная из методов calcCircleByRadius, calcCircleByInc, calcCircleOffset
  * @param circle2 вторая окружность, полученная из методов calcCircleByRadius, calcCircleByInc, calcCircleOffset
+ * @throw
  */
 Geometry::IntersectPoint Geometry::calcIntersectCircles(CircleSegment *circle1, CircleSegment *circle2){
     IntersectPoint intersectPoint;
@@ -535,6 +515,22 @@ Geometry::Point Geometry::getPoint(PointXY *pointXY){
     return point;
 }
 
+
+Geometry::Point Geometry::getPoint(PointXY *pointXY, Point defaultPoint){
+    Point point = getPoint(pointXY);
+    // ESP_LOGI(TAG, "get point {x: %.2f, y: %.2f} with default {z: %.2f, a: %.2f, b: %.2f, c: %.2f}",
+    //     pointXY->x, pointXY->y,
+    //     defaultPoint.z, defaultPoint.a, defaultPoint.b, defaultPoint.c
+    // );
+
+    point.z = defaultPoint.z;
+    point.a = defaultPoint.a;
+    point.b = defaultPoint.b;
+    point.c = defaultPoint.c;
+
+    return point;
+}
+
 /**
  * Преобразование точки в тип PointXY
  * @param point точка
@@ -567,5 +563,22 @@ void Geometry::recalcCircleSegment(CircleSegment *circle){
     circle->angle2 = angle2;
 }
 
+/**
+ * Логирование параметров в консоль
+ */
+void Geometry::Point::log(const char *tag, const char *prefix){
+    ESP_LOGI(tag, "%s: {x: %.4f, y: %.4f, z: %.4f, a: %.4f, b: %.4f, c: %.4f}", prefix,
+        x, y, z, a, b, c
+    );
+}
+
+/**
+ * Логирование параметров в консоль
+ */
+void Geometry::PointXY::log(const char *tag, const char *prefix){
+    ESP_LOGI(tag, "%s: {x: %.4f, y: %.4f}", prefix,
+        x, y
+    );
+}
 
 

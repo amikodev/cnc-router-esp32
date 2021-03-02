@@ -37,12 +37,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .runType = RUN_FAST, \
     .currentCoord = __POINT_NULL, \
     .targetCoord = __POINT_NULL, \
-    .systemCoord = __POINT_NULL, \
+    .offsetCoord = __POINT_NULL, \
     .userZeroPoint = __POINT_NULL, \
     .unit = UNIT_METRIC, \
     .circle = { .type = CIRCLE_RADIUS, .radius = 0, .inc = { .i=0, .j=0, .k=0 } }, \
     .circleSegment = __CIRCLE_NULL, \
     .compensationRadius = { .side = GCodeCR::COMPENSATION_NONE, .value = 0 }, \
+    .plasmaArc = Plasma::PLASMA_ARC_NONE, \
     .speed = 0, \
     .pause = 0, \
     ##__VA_ARGS__ \
@@ -52,7 +53,9 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 void* GCode::_ptr = NULL;
 uint32_t GCode::_size = 0;
 uint32_t GCode::_ptrOffset = 0;
+// bool GCode::_uploaded = false;
 bool GCode::_testRunChecked = false;
+bool GCode::_runned = false;
 TaskHandle_t GCode::gcodeTaskHandle = NULL;
 
 const GCode::GCODE_LETTER GCode::codeVal4length[] = {
@@ -61,11 +64,15 @@ const GCode::GCODE_LETTER GCode::codeVal4length[] = {
     GCODE_LETTER_I, GCODE_LETTER_J, GCODE_LETTER_K
 };
 
-
 GCode::ProgParams GCode::progParams = DEFAULT_PROG();
-
 Geometry::Point GCode::pointNull = __POINT_NULL;
+Plasma* GCode::_plasma = NULL;
 
+float GCode::_fastSpeed = 0.0;                // скорость быстрого перемещения, мм/сек
+float GCode::_workSpeed = 0.0;                // рабочая скорость перемещения, мм/сек
+
+GCode::NotifyNumLineFunc GCode::notifyNumLineFunc = NULL;
+GCode::NotifyFinishFunc GCode::notifyFinishFunc = NULL;
 
 /**
  * Инициализация программы GCode
@@ -112,12 +119,47 @@ bool GCode::isRunnable(){
 }
 
 /**
+ * Выполняется ли GCode в настоящий момент
+ */
+bool GCode::isRunned(){
+    return _runned;
+}
+
+/**
+ * Обнуление немодальных параметров программы
+ */
+void GCode::cleanNotModalParams(){
+
+    progParams.plasmaArc = Plasma::PLASMA_ARC_NONE;
+    progParams.pause = 0.0;
+
+}
+
+/**
+ * Установка плазмы
+ * @param plasma плазма
+ */
+void GCode::setPlasma(Plasma *plasma){
+    _plasma = plasma;
+}
+
+/**
  * Запуск программы GCode
  */
 void GCode::run(){
-    ESP_LOGI(TAG, "run");
+    ESP_LOGI(TAG, "RUN");
+    _runned = true;
     setDefaultProgParams();
-    xTaskCreate(gcodeTask, "gcodeTask", 4096, NULL, 10, &gcodeTaskHandle);
+    xTaskCreate(gcodeTask, "gcodeTask", 4096, NULL, 15, &gcodeTaskHandle);
+}
+
+/**
+ * Остановка программы GCode
+ */
+void GCode::stop(){
+    ESP_LOGI(TAG, "STOP");
+    _runned = false;
+    vTaskDelete(gcodeTaskHandle);
 }
 
 /**
@@ -135,7 +177,6 @@ void GCode::gcodeTask(void *arg){
     uint8_t frameLength = 0;
 
     uint32_t numLine = 0;       // номер строки
-    // uint32_t targetNumLine = 0;
 
     ProgParams *pParams = new ProgParams();         // текущие параметры программы
     memcpy(pParams, &progParams, sizeof(ProgParams));
@@ -149,12 +190,27 @@ void GCode::gcodeTask(void *arg){
     memcpy(&currentParams, &progParams, sizeof(ProgParams));
     memcpy(&targetParams, &progParams, sizeof(ProgParams));
 
+    // отправка номера строки клиенту
+    std::function<void (uint32_t)> sendNumLine = [&](uint32_t numLine){
+        if(notifyNumLineFunc != NULL){
+            notifyNumLineFunc(numLine);
+        }
+    };
+
+    // скорость перемещения необходимая в данный момент, мм/сек
+    std::function<float ()> calcSpeed = [&]() -> float{
+        float speed = 0.0;
+        if(targetParams.speed != 0.0) speed = targetParams.speed;
+        else if(targetParams.runType == RUN_FAST) speed = _fastSpeed;
+        else speed = _workSpeed;
+        if(speed == 0.0) speed = 20.0;      // скорость по-умолчанию
+        return speed;
+    };
 
     for(;;){
         uint8_t sDataInd = 0;
         frameLength = 0;
 
-        // printf("gcodeFramePtrOffset: %d \n", gcodeFramePtrOffset);
         bool reqNextData = false;       // ожидается продолжение данных
         while(true){
             memcpy(&data, ((void *) ( ((uint8_t *)_ptr)+gcodeFramePtrOffset )), 16);
@@ -162,16 +218,8 @@ void GCode::gcodeTask(void *arg){
             if(!reqNextData){
                 numLine = *(data+1) + (*(data+2)<<8) ;
                 sDataInd = 3;       // 0 - OBJ_NAME_CNC_GCODE, 1,2 - номер строки
-                // printf("%d == ", numLine);
                 progParams.numLine = numLine;
-                ESP_LOGI(TAG, "numLine: %d", numLine);
-
-                // // отправка по WebSocket обратно клиенту номера текущей строки выполняемого GCode
-                // // dataResp = {data[0], data[1], data[2]};
-                // memcpy(&dataResp, &data, 16);
-                // xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
-            } else{
-
+                // ESP_LOGI(TAG, "numLine: %d", numLine);
             }
 
             while(sDataInd < 16){
@@ -193,12 +241,10 @@ void GCode::gcodeTask(void *arg){
                 if(lenValue == 1){
                     memcpy(&intValue, data+sDataInd+1, lenValue);
                     floatValue = (float) intValue;
-                    // printf("%d:%f ", letter, floatValue);
                 } else if(lenValue == 4){
                     memcpy(&floatValue, data+sDataInd+1, lenValue);
-                    // printf("%d:%f ", letter, floatValue);
                 }
-                ESP_LOGI(TAG, "\t%d:%f", letter, floatValue);
+                // ESP_LOGI(TAG, "\t%d:%f", letter, floatValue);
 
                 frame[frameLength].letter = letter;
                 frame[frameLength].value = floatValue;
@@ -212,16 +258,13 @@ void GCode::gcodeTask(void *arg){
                 reqNextData = true;
             } else{
                 reqNextData = false;
-                // printf("\n");
                 break;
             }
-
             gcodeFramePtrOffset += 16;
         }
 
 
         if(processFrame(frame, frameLength)){
-            // Geometry::Point targetPoint = calcPoint(&progParams);
             Geometry::Point nextPoint = calcTargetPoint(&progParams);
             memcpy(&nextParams, &progParams, sizeof(ProgParams));
             if(Geometry::pointsIsEqual(&targetPoint, &nextPoint)){
@@ -234,22 +277,22 @@ void GCode::gcodeTask(void *arg){
                     pParamsList.push_back(progParams);
                 } else{
                     // выполняется перемещение на основе информации о текущей, целевой и следующей за целевой точками
-                    // ESP_LOGI(TAG, "targetNumLine: %d", targetNumLine);
-                    ESP_LOGI(TAG, "targetNumLine: %d", targetParams.numLine);
-                    ESP_LOGI(TAG, "current: [%.2f ; %.2f], target: [%.2f ; %.2f], next: [%.2f ; %.2f]",
-                        currentPoint.x, currentPoint.y, 
-                        targetPoint.x, targetPoint.y, 
-                        nextPoint.x, nextPoint.y
-                    );
-                    ESP_LOGI(TAG, "CR current: side: %d; value: %f, CR target: side: %d; value: %f, CR next: side: %d; value: %f", 
-                        currentParams.compensationRadius.side, currentParams.compensationRadius.value,
-                        targetParams.compensationRadius.side, targetParams.compensationRadius.value,
-                        nextParams.compensationRadius.side, nextParams.compensationRadius.value
-                    );
+                    ESP_LOGI(TAG, "numLine: %d", targetParams.numLine);
+                    // ESP_LOGI(TAG, "current: [%.2f ; %.2f], target: [%.2f ; %.2f], next: [%.2f ; %.2f]",
+                    //     currentPoint.x, currentPoint.y, 
+                    //     targetPoint.x, targetPoint.y, 
+                    //     nextPoint.x, nextPoint.y
+                    // );
+                    // ESP_LOGI(TAG, "CR current: side: %d; value: %f, CR target: side: %d; value: %f, CR next: side: %d; value: %f", 
+                    //     currentParams.compensationRadius.side, currentParams.compensationRadius.value,
+                    //     targetParams.compensationRadius.side, targetParams.compensationRadius.value,
+                    //     nextParams.compensationRadius.side, nextParams.compensationRadius.value
+                    // );
 
+                    // скорость перемещения необходимая в данный момент
+                    float speed = calcSpeed();
 
-                    // float speed = targetParams.runType == RUN_FAST ? 70 : 50;
-                    float speed = targetParams.runType == RUN_FAST ? 25 : 5;
+                    sendNumLine(targetParams.numLine);
                     if(targetParams.runType == RUN_FAST || targetParams.compensationRadius.side == GCodeCR::COMPENSATION_NONE){
                         // на целевой точке компенсация радиуса отсутствует 
                         processPath(&targetPoint, &targetParams, speed);
@@ -266,7 +309,9 @@ void GCode::gcodeTask(void *arg){
                     for(auto iter = pParamsList.begin(); iter != pParamsList.end(); iter++){
                         ProgParams pParams = (ProgParams) *iter;
                         if(pParams.numLine != currentParams.numLine){
-                            ESP_LOGI(TAG, "pParamsList numLine: %d", pParams.numLine);
+                            ESP_LOGI(TAG, "numLine: %d [p]", pParams.numLine);
+                            sendNumLine(pParams.numLine);
+                            processProgParams(&pParams);
                         }
                     }
 
@@ -275,22 +320,13 @@ void GCode::gcodeTask(void *arg){
 
                     memcpy(&currentPoint, &targetPoint, sizeof(Geometry::Point));
                     memcpy(&currentParams, &targetParams, sizeof(ProgParams));
-
                 }
                 memcpy(&targetPoint, &nextPoint, sizeof(Geometry::Point));
                 memcpy(&targetParams, &nextParams, sizeof(ProgParams));
-                // targetNumLine = numLine;
             }
-// Geometry::pointsIsEqual(&currentPoint, &targetPoint)
-
-            // if(!Geometry::pointsIsEqual(&currentPoint, &targetPoint)){
-            //     // выполняются действия зависящие от перемещения
-
-            //     memcpy(&currentPoint, &targetPoint, sizeof(Geometry::Point));
-            // }
-            // // выполняются действия зависящие или не зависящие от перемещения
-            // pParamsList.push_back(progParams);
             
+            cleanNotModalParams();      // обнуление немодальных параметров программы
+            memcpy(&progParams.currentCoord, &targetPoint, sizeof(Geometry::Point));
         }
 
         gcodeFramePtrOffset += 16;
@@ -298,25 +334,45 @@ void GCode::gcodeTask(void *arg){
         if(gcodeFramePtrOffset >= _size){
             // достигнут конец программы
 
-            // if(pMoveParams[0] != NULL && pMoveParams[1] != NULL){
-            //     memcpy(pMoveParams[0], pMoveParams[1], sizeof(MoveParams));
+            if(!Geometry::pointsIsEqual(&currentPoint, &targetPoint)){
+                // выполняется перемещение на основе информации о текущей, целевой и следующей за целевой точками
+                ESP_LOGI(TAG, "last path");
+                ESP_LOGI(TAG, "numLine: %d", targetParams.numLine);
+                // ESP_LOGI(TAG, "current: [%.2f ; %.2f], target: [%.2f ; %.2f]",
+                //     currentPoint.x, currentPoint.y, 
+                //     targetPoint.x, targetPoint.y
+                // );
 
-            //     instance->gcodeProcessMove(pMoveParams[0], NULL);
-            //     instance->gcodeRecalcCoords(&targetPoint);
+                float speed = calcSpeed();
+                sendNumLine(targetParams.numLine);
+                // на последнем участке пути проходим без учёта компенсации радиуса инструмента
+                processPath(&targetPoint, &targetParams, speed);
 
-            //     // free(&(pMoveParams[0]));
-            //     // free(&(pMoveParams[1]));
+                // проход по списку параметров программы
+                for(auto iter = pParamsList.begin(); iter != pParamsList.end(); iter++){
+                    ProgParams pParams = (ProgParams) *iter;
+                    if(pParams.numLine != currentParams.numLine){
+                        ESP_LOGI(TAG, "numLine: %d [p]", pParams.numLine);
+                        sendNumLine(pParams.numLine);
+                        processProgParams(&pParams);
+                    }
+                }
 
-            //     // pMoveParams[0] = NULL;
-            //     // pMoveParams[1] = NULL;
-            // }
+
+            }
 
             // завершаем задачу
+            _runned = false;
             ESP_LOGI(TAG, "FINISH");
             free(pParams);
+            GCode::gcodeTaskHandle = NULL;
+            if(notifyFinishFunc != NULL){
+                notifyFinishFunc();
+            }
             vTaskDelete(NULL);
         }
     }
+    GCode::gcodeTaskHandle = NULL;
     vTaskDelete(NULL);
 }
 
@@ -333,6 +389,10 @@ void GCode::setTestRunChecked(bool checked){
  */
 void GCode::setDefaultProgParams(){
     progParams = DEFAULT_PROG();
+
+    if(Axe::getStepDriver(Axe::AXE_Z) != NULL)
+        progParams.targetCoord.z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
+
 }
 
 /**
@@ -344,13 +404,49 @@ bool GCode::processFrame(FrameSubData *frame, uint8_t frameLength){
 
     // функция рассчёта целевых координат на основе установленной единицы измерения, 
     // смещения нулевой точки, системы координат и др.
-    std::function<void (float*, float)> calcCoord = [&](float *var, float value){
-        *var = value;
+    std::function<void (char, float)> calcCoord = [&](char axeName, float value){
+        float val = value;
+        if(progParams.unit == UNIT_INCH){       // дюймы в миллиметры
+            val *= 25.4;
+        }
+
+        switch(axeName){
+            case 'x':
+                progParams.targetCoord.x = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.x : 0) + val;
+                break;
+            case 'y':
+                progParams.targetCoord.y = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.y : 0) + val;
+                break;
+            case 'z':
+                progParams.targetCoord.z = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.z : 0) + val;
+                break;
+            case 'a':
+                progParams.targetCoord.a = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.a : 0) + val;
+                break;
+            case 'b':
+                progParams.targetCoord.b = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.b : 0) + val;
+                break;
+            case 'c':
+                progParams.targetCoord.c = (progParams.coordType == COORD_RELATIVE ? progParams.targetCoord.c : 0) + val;
+                break;
+            default:
+                break;
+        }
+
     };
+
+    if(progParams.runType == RUN_WORK_CW || progParams.runType == RUN_WORK_CCW){
+        for(uint8_t i=0; i<frameLength; i++){
+            // FrameSubData *el = frame+i;
+            if(!processThisFrame)       // текущую команду Gxx не обрабатываем
+                break;
+
+            progParams.circle.inc = { .i = 0.0, .j = 0.0, .k = 0.0 };
+        }
+    }
 
     for(uint8_t i=0; i<frameLength; i++){
         FrameSubData *el = frame+i;
-        // printf("frame el: %d, %f \n", el->letter, el->value);
         if(!processThisFrame)       // текущую команду Gxx не обрабатываем
             break;
 
@@ -363,28 +459,22 @@ bool GCode::processFrame(FrameSubData *frame, uint8_t frameLength){
                 break;
 
             case GCODE_LETTER_X:
-                calcCoord(&progParams.targetCoord.x, el->value);
-                // progParams.targetCoord.x = el->value;
+                calcCoord('x', el->value);
                 break;
             case GCODE_LETTER_Y:
-                calcCoord(&progParams.targetCoord.y, el->value);
-                // progParams.targetCoord.y = el->value;
+                calcCoord('y', el->value);
                 break;
             case GCODE_LETTER_Z:
-                calcCoord(&progParams.targetCoord.z, el->value);
-                // progParams.targetCoord.z = el->value;
+                calcCoord('z', el->value);
                 break;
             case GCODE_LETTER_A:
-                calcCoord(&progParams.targetCoord.a, el->value);
-                // progParams.targetCoord.a = el->value;
+                calcCoord('a', el->value);
                 break;
             case GCODE_LETTER_B:
-                calcCoord(&progParams.targetCoord.b, el->value);
-                // progParams.targetCoord.b = el->value;
+                calcCoord('b', el->value);
                 break;
             case GCODE_LETTER_C:
-                calcCoord(&progParams.targetCoord.c, el->value);
-                // progParams.targetCoord.c = el->value;
+                calcCoord('c', el->value);
                 break;
 
             case GCODE_LETTER_I:
@@ -445,6 +535,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 2:     // G02 - Круговая интерполяция по часовой стрелке
             progParams.runType = RUN_WORK_CW;
+            progParams.circle.inc = { .i = 0.0, .j = 0.0, .k = 0.0 };
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
@@ -474,6 +565,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 3:     // G03 - Круговая интерполяция против часовой стрелки
             progParams.runType = RUN_WORK_CCW;
+            progParams.circle.inc = { .i = 0.0, .j = 0.0, .k = 0.0 };
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
@@ -515,6 +607,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
                         break;
                 }
             }
+            processThisCommand = false;
             break;
         case 10:    // G10 - Переключение абсолютной системы координат
         case 15:    // G15 - Отмена полярной системы координат
@@ -591,15 +684,39 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 90:    // G90 - Задание абсолютных координат опорных точек траектории
             progParams.coordType = COORD_ABSOLUTE;
-            memcpy(&progParams.targetCoord, &progParams.currentCoord, sizeof(Geometry::Point));
-            memcpy(&progParams.systemCoord, &pointNull, sizeof(Geometry::Point));
             break;
         case 91:    // G91 - Задание координат инкрементально последней введённой опорной точки
             progParams.coordType = COORD_RELATIVE;
-            memcpy(&progParams.targetCoord, &pointNull, sizeof(Geometry::Point));
-            memcpy(&progParams.systemCoord, &progParams.currentCoord, sizeof(Geometry::Point));
             break;
         case 92:    // G92 - Смещение абсолютной системы координат
+            progParams.coordType = COORD_OFFSET;
+            memcpy(&progParams.targetCoord, &pointNull, sizeof(Geometry::Point));
+            memcpy(&progParams.offsetCoord, &progParams.currentCoord, sizeof(Geometry::Point));
+            for(uint8_t i=0; i<frameLength; i++){
+                FrameSubData *el = frame+i;
+                switch(el->letter){
+                    case GCODE_LETTER_X:
+                        progParams.offsetCoord.x -= el->value;
+                        break;
+                    case GCODE_LETTER_Y:
+                        progParams.offsetCoord.y -= el->value;
+                        break;
+                    case GCODE_LETTER_Z:
+                        progParams.offsetCoord.z -= el->value;
+                        break;
+                    case GCODE_LETTER_A:
+                        progParams.offsetCoord.a -= el->value;
+                        break;
+                    case GCODE_LETTER_B:
+                        progParams.offsetCoord.b -= el->value;
+                        break;
+                    case GCODE_LETTER_C:
+                        progParams.offsetCoord.c -= el->value;
+                        break;
+                    default:
+                        break;
+                }
+            }
             processThisCommand = false;
             break;
         case 94:    // G94 - F (подача) — в формате мм/мин
@@ -620,24 +737,22 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
 bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLength){
     bool processThisCommand = true;
     switch(value){
-        // case 3:     // M03 - включить плазму
-        // case 7:     // M07 - включить плазму
-        //     if(!_testRunChecked){       // тестовый прогон программы gcode выключен
-        //         if(_plasma != NULL){
-        //             if(!_plasma->getArcStarted()){      // плазма не включена, включаем
-        //                 progParams.plasmaArc = PLASMA_ARC_START;
-        //             }
-        //         }
-        //     }
-        //     break;
-        // case 5:     // M05 - выключить плазму
-        // case 8:     // M08 - выключить плазму
-        //     if(!_testRunChecked){       // тестовый прогон программы gcode выключен
-        //         if(_plasma != NULL){
-        //             progParams.plasmaArc = PLASMA_ARC_STOP;
-        //         }
-        //     }
-        //     break;
+        case 3:     // M03 - включить плазму
+        case 7:     // M07 - включить плазму
+            if(!_testRunChecked){       // тестовый прогон программы gcode выключен
+                if(_plasma != NULL){
+                    progParams.plasmaArc = Plasma::PLASMA_ARC_START;
+                }
+            }
+            break;
+        case 5:     // M05 - выключить плазму
+        case 8:     // M08 - выключить плазму
+            if(!_testRunChecked){       // тестовый прогон программы gcode выключен
+                if(_plasma != NULL){
+                    progParams.plasmaArc = Plasma::PLASMA_ARC_STOP;
+                }
+            }
+            break;
         default:
             break;
     }
@@ -651,12 +766,12 @@ bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLe
  */
 Geometry::Point GCode::calcTargetPoint(ProgParams *pParams){
     Geometry::Point point = {
-        .x = pParams->targetCoord.x + pParams->systemCoord.x,
-        .y = pParams->targetCoord.y + pParams->systemCoord.y,
-        .z = pParams->targetCoord.z + pParams->systemCoord.z,
-        .a = pParams->targetCoord.a + pParams->systemCoord.a,
-        .b = pParams->targetCoord.b + pParams->systemCoord.b,
-        .c = pParams->targetCoord.c + pParams->systemCoord.c
+        .x = pParams->targetCoord.x + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.x : 0),
+        .y = pParams->targetCoord.y + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.y : 0),
+        .z = pParams->targetCoord.z + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.z : 0),
+        .a = pParams->targetCoord.a + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.a : 0),
+        .b = pParams->targetCoord.b + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.b : 0),
+        .c = pParams->targetCoord.c + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.c : 0)
     };
     return point;
 }
@@ -689,34 +804,18 @@ void GCode::calcCircleSegment(Geometry::Point *currentPoint, Geometry::Point *ta
 void GCode::processPath(Geometry::Point *targetPoint, ProgParams *targetParams, float speed){
 
     std::function<void ()> funcTargetFinish = [&](){
-        ESP_LOGI(TAG, "funcTargetFinish");
+        // ESP_LOGI(TAG, "funcTargetFinish");
         vTaskResume(gcodeTaskHandle);
     };
 
     if(isLinearInterpolation(targetParams)){
-        ActionMove::gotoPoint(targetPoint, speed, funcTargetFinish);
-        vTaskSuspend(gcodeTaskHandle);
+        if(ActionMove::gotoPoint(targetPoint, speed, funcTargetFinish)){
+            vTaskSuspend(gcodeTaskHandle);
+        }
     } else if(isCircleInterpolation(targetParams)){
-        ActionMove::circle(&targetParams->circleSegment, speed, funcTargetFinish);
-        vTaskSuspend(gcodeTaskHandle);
-
-
-        // Geometry::PointXY p1 = Geometry::getPointXY(currentPoint);
-        // Geometry::PointXY p2 = Geometry::getPointXY(targetPoint);
-        // Geometry::CircleSegment circle;
-        // if(targetParams->circle.type == CIRCLE_RADIUS){
-        //     circle = Geometry::calcCircleByRadius(&p1, &p2, targetParams->circle.radius, targetParams->runType == RUN_WORK_CCW);
-        //     ActionMove::circle(&circle, speed, funcTargetFinish);
-        //     vTaskSuspend(gcodeTaskHandle);
-        // } else if(targetParams->circle.type == CIRCLE_INC){
-        //     circle = Geometry::calcCircleByInc(&p1, &p2, targetParams->circle.inc.i, targetParams->circle.inc.j, targetParams->runType == RUN_WORK_CCW);
-        //     ActionMove::circle(&circle, speed, funcTargetFinish);
-        //     vTaskSuspend(gcodeTaskHandle);
-        // } else{
-        //     // тип окружности не известен, поэтому движение по линейной интерполяции
-        //     ActionMove::gotoPoint(targetPoint, speed, funcTargetFinish);
-        //     vTaskSuspend(gcodeTaskHandle);
-        // }
+        if(ActionMove::circle(&targetParams->circleSegment, speed, funcTargetFinish)){
+            vTaskSuspend(gcodeTaskHandle);
+        }
     }
 
 }
@@ -737,6 +836,110 @@ bool GCode::isCircleInterpolation(ProgParams *pParams){
     return pParams->runType == RUN_WORK_CW || pParams->runType == RUN_WORK_CCW;
 }
 
+/**
+ * Выполнение команд GCode не связанных с перемещением
+ */
+void GCode::processProgParams(ProgParams *pParams){
+
+    if(pParams->pause > 0.0){
+        // пауза выполнения программы
+        actionPause(pParams->pause);
+    }
+
+    if(pParams->plasmaArc == Plasma::PLASMA_ARC_START){             // запуск плазмы
+        if(_plasma != NULL){
+            if(!_plasma->getArcStarted()){      // плазма не включена, включаем
+                _plasma->start();
+                // задача gcode приостанавливается и
+                // возобновляется в методе CncRouter::plasmaArcStartedCallback
+                // ожидая подтверждения о начале резки от аппарата плазменной резки
+                vTaskSuspend(gcodeTaskHandle);
+            }
+        }
+    } else if(pParams->plasmaArc == Plasma::PLASMA_ARC_STOP){       // остановка плазмы
+        if(_plasma != NULL){
+            _plasma->stop();
+        }
+    }
+
+}
+
+/**
+ * Пауза выполнения программы
+ * @param pause пауза, сек
+ */
+void GCode::actionPause(float pause){
+    ESP_LOGI(TAG, "Pause: %f sec", pause);
+    esp_timer_create_args_t timerPauseArgs = {
+        .callback = &GCode::actionPauseFinish,
+        .arg = NULL,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "gcode_pause"
+    };
+
+    esp_timer_handle_t timerPause;
+    ESP_ERROR_CHECK(esp_timer_create(&timerPauseArgs, &timerPause));
+    ESP_ERROR_CHECK(esp_timer_start_once(timerPause, (uint64_t) (pause*1e6)));
+
+    // задача gcode приостанавливается и
+    // возобновляется в функции funcPauseCallback
+    vTaskSuspend(gcodeTaskHandle);
+    ESP_LOGI(TAG, "Pause resume");
+}
+
+/**
+ * Завершение паузы выполнения программы.
+ */
+void GCode::actionPauseFinish(void *arg){
+    // возобновление основной задачи gcode
+    vTaskResume(gcodeTaskHandle);
+}
+
+/**
+ * установка скорости быстрого перемещения
+ * @param speed скорость
+ */
+void GCode::setFastSpeed(float speed){
+    _fastSpeed = speed;
+}
+
+/**
+ * Получение скорости быстрого перемещения
+ */
+float GCode::getFastSpeed(){
+    return _fastSpeed;
+}
+
+/**
+ * установка рабочей скорости перемещения
+ * @param speed скорость
+ */
+void GCode::setWorkSpeed(float speed){
+    _workSpeed = speed;
+}
+
+/**
+ * Получение рабочей скорости перемещения
+ */
+float GCode::getWorkSpeed(){
+    return _workSpeed;
+}
+
+/**
+ * Устанвка функции для отправки номера текущей строки клиенту
+ * @param func функция
+ */
+void GCode::setNotifyNumLineFunc(NotifyNumLineFunc func){
+    notifyNumLineFunc = func;
+}
+
+/**
+ * Устанвка функции вызываемой по завершению выполнения программы
+ * @param func функция
+ */
+void GCode::setNotifyFinishFunc(NotifyFinishFunc func){
+    notifyFinishFunc = func;
+}
 
 
 

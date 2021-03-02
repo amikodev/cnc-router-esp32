@@ -19,11 +19,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #ifndef __GCODE_HPP__
 #define __GCODE_HPP__
 
-// class GCode;
-
 #include "Geometry.hpp"
 #include "GCodeCR.hpp"
 #include "ActionMove.hpp"
+#include "Plasma.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -39,8 +38,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_sleep.h"
-
-// class GCodeCR;
 
 /**
  * Управляющая программа GCode
@@ -82,7 +79,8 @@ public:
 
     enum COORD_TYPE{
         COORD_ABSOLUTE = 0,
-        COORD_RELATIVE
+        COORD_RELATIVE,
+        COORD_OFFSET
     };
 
     enum RUN_TYPE{
@@ -119,35 +117,42 @@ public:
         RUN_TYPE runType;
         Geometry::Point currentCoord;       // текущие координаты (абсолютные)
         Geometry::Point targetCoord;        // целевые координаты (абсолютные или относительные, в зависимости от coordSystem)
-        Geometry::Point systemCoord;        // координаты нулевой точки при переводе на другую систему координат (G90 или G91)
+        Geometry::Point offsetCoord;        // координаты смещения (G92)
         Geometry::Point userZeroPoint;      // координаты пользовательского "нуля"
         UNIT_TYPE unit;                     // единицы измерения
         Circle circle;                      // окружность
         Geometry::CircleSegment circleSegment;  // сегмент окружности (рассчитанный на основе circle)
         GCodeCR::CompensationRadius compensationRadius;         // компенсация радиуса
-
-        float speed;
-        float pause;
+        Plasma::PLASMA_ARC plasmaArc;       // запуск плазмы
+        float speed;                        // скорость перемещения, мм/сек
+        float pause;                        // пауза задаваемая командой G04, в секундах
     };
 
     static TaskHandle_t gcodeTaskHandle;
 
+    typedef void (*NotifyNumLineFunc)(uint32_t numLine);
+    typedef void (*NotifyFinishFunc)();
 
 private:
 
-    static void *_ptr;                     // указатель на начало памяти программы
-    static uint32_t _size;                 // размер памяти
-    static uint32_t _ptrOffset;            // смещение в памяти на конец принятых данных для последующего добавления данных
+    static void *_ptr;                      // указатель на начало памяти программы
+    static uint32_t _size;                  // размер памяти
+    static uint32_t _ptrOffset;             // смещение в памяти на конец принятых данных для последующего добавления данных
 
-    static bool _testRunChecked;           // флаг тестового прогона программы gcode
-
+    // static bool _uploaded;                  // программа gcode загружена в память
+    static bool _testRunChecked;            // флаг тестового прогона программы gcode
+    static bool _runned;                    // программа gcode запущена
 
     static const GCODE_LETTER codeVal4length[];     // параметры фреймов с типом данных Float (4 байта)
-
     static ProgParams progParams;           // текущие параметры программы
-
     static Geometry::Point pointNull;       // нулевые координаты: x=0, y=0, z=0, a=0, b=0, c=0
+    static Plasma *_plasma;                 // плазма
 
+    static float _fastSpeed;                // скорость быстрого перемещения, мм/сек
+    static float _workSpeed;                // рабочая скорость перемещения, мм/сек
+
+    static NotifyNumLineFunc notifyNumLineFunc; 
+    static NotifyFinishFunc notifyFinishFunc;
 
 public:
 
@@ -176,9 +181,30 @@ public:
     static bool isRunnable();
 
     /**
+     * Выполняется ли GCode в настоящий момент
+     */
+    static bool isRunned();
+
+    /**
+     * Обнуление немодальных параметров программы
+     */
+    static void cleanNotModalParams();
+
+    /**
+     * Установка плазмы
+     * @param plasma плазма
+     */
+    static void setPlasma(Plasma *plasma);
+
+    /**
      * Запуск программы GCode
      */
     static void run();
+
+    /**
+     * Остановка программы GCode
+     */
+    static void stop();
 
     /**
      * Задача выполнения программы GCode
@@ -243,6 +269,56 @@ public:
      * @param pParams параметры программы
      */
     static bool isCircleInterpolation(ProgParams *pParams);
+
+    /**
+     * Выполнение команд GCode не связанных с перемещением
+     */
+    static void processProgParams(ProgParams *pParams);
+
+    /**
+     * Пауза выполнения программы
+     * @param pause пауза, сек
+     */
+    static void actionPause(float pause);
+
+    /**
+     * Завершение паузы выполнения программы.
+     */
+    static void actionPauseFinish(void *arg);
+
+    /**
+     * Установка скорости быстрого перемещения
+     * @param speed скорость
+     */
+    static void setFastSpeed(float speed);
+
+    /**
+     * Получение скорости быстрого перемещения
+     */
+    static float getFastSpeed();
+
+    /**
+     * Установка рабочей скорости перемещения
+     * @param speed скорость
+     */
+    static void setWorkSpeed(float speed);
+
+    /**
+     * Получение рабочей скорости перемещения
+     */
+    static float getWorkSpeed();
+
+    /**
+     * Устанвка функции для отправки номера текущей строки клиенту
+     * @param func функция
+     */
+    static void setNotifyNumLineFunc(NotifyNumLineFunc func);
+
+    /**
+     * Устанвка функции вызываемой по завершению выполнения программы
+     * @param func функция
+     */
+    static void setNotifyFinishFunc(NotifyFinishFunc func);
 
 };
 

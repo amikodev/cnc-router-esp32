@@ -43,11 +43,21 @@ public:
         float a;
         float b;
         float c;
+
+        /**
+         * Логирование параметров в консоль
+         */
+        void log(const char *tag, const char *prefix);
     };
 
     struct PointXY{
         float x;
         float y;
+
+        /**
+         * Логирование параметров в консоль
+         */
+        void log(const char *tag, const char *prefix);
     };
 
     struct PointXYZ{
@@ -216,6 +226,9 @@ public:
      * @param pointXY точка
      */
     static Point getPoint(PointXY *pointXY);
+
+
+    static Point getPoint(PointXY *pointXY, Point defaultPoint);
 
     /**
      * Преобразование точки в тип PointXY

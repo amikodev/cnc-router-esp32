@@ -22,7 +22,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include <functional>
 
 #include "esp_system.h"
-// #include "esp_wifi.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 
@@ -78,7 +77,7 @@ private:
 
     gpio_num_t _pinPul = GPIO_NUM_NC;   // вывод импульсов на драйвер мотора
     gpio_num_t _pinDir = GPIO_NUM_NC;   // вывод направления на драйвер мотора
-    uint16_t _pulses = 0;               // количество импульсов на 1 оборот
+    uint16_t _pulses = 200;             // количество импульсов на 1 оборот
     char _letter = '-';                 // буква оси
     float _reductor = 1.0;              // передаточное число редуктора
 
@@ -96,7 +95,6 @@ private:
 
     RUN_MODE runMode = MODE_NONE;       // режим работы
 
-    // bool _modeProbe = false;        // режим проверки координат
     esp_timer_handle_t _timerActionRun = NULL;
 
     MotorTarget motorTarget;
@@ -106,6 +104,10 @@ private:
     uint8_t syncChildsCount = 0;                                // количество синхронизируемых осей
     bool isSynced = false;                                      // синхронизируема с другой осью
 
+    double k1 = 0.0;
+
+
+    void calcK1();
 
 public:
 

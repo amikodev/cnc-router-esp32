@@ -34,7 +34,7 @@ Geometry::Point* GCodeCRP::crossPoint = NULL;
  * @param speed скорость, мм/сек
  */
 void GCodeCRP::processPath(GCodeCRP::CompensationPath *compensationPath, float speed){
-    ESP_LOGI(TAG, "processPath");
+    // ESP_LOGI(TAG, "processPath");
 
     GCode::ProgParams *pParams = compensationPath->targetParams;
     if(GCode::isLinearInterpolation(pParams)){
@@ -50,10 +50,10 @@ void GCodeCRP::processPath(GCodeCRP::CompensationPath *compensationPath, float s
  * @param speed скорость, мм/сек
  */
 void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float speed){
-    ESP_LOGI(TAG, "processLine");
+    // ESP_LOGI(TAG, "processLine");
 
     std::function<void ()> funcTargetFinish = [&](){
-        ESP_LOGI(TAG, "funcTargetFinish");
+        // ESP_LOGI(TAG, "funcTargetFinish");
         vTaskResume(GCode::gcodeTaskHandle);
     };
 
@@ -68,19 +68,20 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
         tParams->compensationRadius.side == COMPENSATION_LEFT
     );
 
-    ESP_LOGI(TAG, "p1:[%.2f : %.2f], p2:[%.2f : %.2f], p1p:[%.2f : %.2f], p2p:[%.2f : %.2f]",
-        compensationPath->currentPoint->x, compensationPath->currentPoint->y, compensationPath->targetPoint->x, compensationPath->targetPoint->y, 
-        lineOffset.p1.x, lineOffset.p1.y, lineOffset.p2.x, lineOffset.p2.y
-    );
+    // ESP_LOGI(TAG, "p1:[%.2f : %.2f], p2:[%.2f : %.2f], p1p:[%.2f : %.2f], p2p:[%.2f : %.2f]",
+    //     compensationPath->currentPoint->x, compensationPath->currentPoint->y, compensationPath->targetPoint->x, compensationPath->targetPoint->y, 
+    //     lineOffset.p1.x, lineOffset.p1.y, lineOffset.p2.x, lineOffset.p2.y
+    // );
 
+    Geometry::Point defaultPoint = { .x = 0.0, .y = 0.0, .z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM(), .a = 0.0, .b = 0.0, .c = 0.0};
 
-    Geometry::Point p1p = Geometry::getPoint(&lineOffset.p1);
-    Geometry::Point p2p = Geometry::getPoint(&lineOffset.p2);
+    Geometry::Point p1p = Geometry::getPoint(&lineOffset.p1, defaultPoint);
+    Geometry::Point p2p = Geometry::getPoint(&lineOffset.p2, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        ActionMove::gotoPoint(&p1p, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
-
+        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
     } else{
 
         if(crossPoint != NULL){
@@ -91,11 +92,12 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
     }
 
     if(nParams->compensationRadius.side == COMPENSATION_NONE){
-        ActionMove::gotoPoint(&p2p, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
-        ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
-
+        if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
+        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
     } else{
 
         // следующий участок пути - линейная интерполяция
@@ -115,21 +117,23 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 intersectPoint = Geometry::calcIntersectLineSegments(&lineOffset, &lineOffsetNext);
                 intersectPointFounded = true;
             } catch(const std::runtime_error &error){}
-            ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
+            // ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
             if(intersectPointFounded && intersectPoint.inner){      // точка пересечения внутри
                 // отрезок на текущем участке пути
                 // до точки пересечения отрезков
-                Geometry::Point point = Geometry::getPoint(&intersectPoint.point);
+                Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                ActionMove::gotoPoint(crossPoint, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::gotoPoint(crossPoint, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                ActionMove::gotoPoint(&p2p, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -154,8 +158,9 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        ActionMove::circle(&circleJoin, speed, funcTargetFinish);
-                        vTaskSuspend(GCode::gcodeTaskHandle);
+                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
+                            vTaskSuspend(GCode::gcodeTaskHandle);
+                        }
                     }
                 }
             }
@@ -169,8 +174,8 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 nParams->compensationRadius.value, 
                 nParams->compensationRadius.side == COMPENSATION_LEFT
             );
-            ESP_LOGI(TAG, "circle:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circle->p1.x, circle->p1.y, circle->p2.x, circle->p2.y, circle->angle1*180/PI, circle->angle2*180/PI);
-            ESP_LOGI(TAG, "circleOffset: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffset.p1.x, circleOffset.p1.y, circleOffset.p2.x, circleOffset.p2.y, circleOffset.angle1*180/PI, circleOffset.angle2*180/PI);
+            // ESP_LOGI(TAG, "circle:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circle->p1.x, circle->p1.y, circle->p2.x, circle->p2.y, circle->angle1*180/PI, circle->angle2*180/PI);
+            // ESP_LOGI(TAG, "circleOffset: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffset.p1.x, circleOffset.p1.y, circleOffset.p2.x, circleOffset.p2.y, circleOffset.angle1*180/PI, circleOffset.angle2*180/PI);
 
             // точка пересечения отрезка на текущем участке пути и
             // окружностью на следующем
@@ -181,21 +186,23 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 intersectPoint = Geometry::calcIntersectLineCircle(&lineOffset, &circleOffset);
                 intersectPointFounded = true;
             } catch(const std::runtime_error &error){}
-            ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
+            // ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
             if(intersectPointFounded && intersectPoint.inner){      // точка пересечения внутри
                 // отрезок на текущем участке пути
                 // до точки пересечения с окружностью
-                Geometry::Point point = Geometry::getPoint(&intersectPoint.point);
+                Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                ActionMove::gotoPoint(&point, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::gotoPoint(&point, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                ActionMove::gotoPoint(&p2p, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -215,8 +222,9 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        ActionMove::circle(&circleJoin, speed, funcTargetFinish);
-                        vTaskSuspend(GCode::gcodeTaskHandle);
+                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
+                            vTaskSuspend(GCode::gcodeTaskHandle);
+                        }
                     }
                 }
             }
@@ -230,10 +238,10 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
  * @param speed скорость, мм/сек
  */
 void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float speed){
-    ESP_LOGI(TAG_CIRCLE, "processCircle");
+    // ESP_LOGI(TAG_CIRCLE, "processCircle");
 
     std::function<void ()> funcTargetFinish = [&](){
-        ESP_LOGI(TAG_CIRCLE, "funcTargetFinish");
+        // ESP_LOGI(TAG_CIRCLE, "funcTargetFinish");
         vTaskResume(GCode::gcodeTaskHandle);
     };
 
@@ -247,15 +255,17 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
         tParams->compensationRadius.value, 
         tParams->compensationRadius.side == COMPENSATION_LEFT
     );
-    ESP_LOGI(TAG_CIRCLE, "circle:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circle->p1.x, circle->p1.y, circle->p2.x, circle->p2.y, circle->angle1*180/PI, circle->angle2*180/PI);
-    ESP_LOGI(TAG_CIRCLE, "circleOffset: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffset.p1.x, circleOffset.p1.y, circleOffset.p2.x, circleOffset.p2.y, circleOffset.angle1*180/PI, circleOffset.angle2*180/PI);
+    // ESP_LOGI(TAG_CIRCLE, "circle:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circle->p1.x, circle->p1.y, circle->p2.x, circle->p2.y, circle->angle1*180/PI, circle->angle2*180/PI);
+    // ESP_LOGI(TAG_CIRCLE, "circleOffset: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffset.p1.x, circleOffset.p1.y, circleOffset.p2.x, circleOffset.p2.y, circleOffset.angle1*180/PI, circleOffset.angle2*180/PI);
 
+    Geometry::Point defaultPoint = { .x = 0.0, .y = 0.0, .z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM(), .a = 0.0, .b = 0.0, .c = 0.0};
 
-    Geometry::Point p1p = Geometry::getPoint(&circleOffset.p1);
+    Geometry::Point p1p = Geometry::getPoint(&circleOffset.p1, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        ActionMove::gotoPoint(&p1p, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
+        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
 
     } else{
 
@@ -271,10 +281,12 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
     }
 
     if(nParams->compensationRadius.side == COMPENSATION_NONE){
-        ActionMove::circle(&circleOffset, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
-        ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish);
-        vTaskSuspend(GCode::gcodeTaskHandle);
+        if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
+        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
+            vTaskSuspend(GCode::gcodeTaskHandle);
+        }
 
     } else{
 
@@ -295,23 +307,25 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                 intersectPoint = Geometry::calcIntersectLineCircle(&lineOffsetNext, &circleOffset);
                 intersectPointFounded = true;
             } catch(const std::runtime_error &error){}
-            ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
+            // ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
             if(intersectPointFounded && intersectPoint.inner){      // точка пересечения внутри
                 // отрезок на текущем участке пути
                 // до точки пересечения с окружностью
-                Geometry::Point point = Geometry::getPoint(&intersectPoint.point);
+                Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
                 circleOffset.p2 = Geometry::getPointXY(crossPoint);
                 Geometry::recalcCircleSegment(&circleOffset);
-                ActionMove::circle(&circleOffset, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
             } else{     // окружность снаружи
 
                 // окружность на текущем участке пути
                 // до конечной точки этой окружность
-                ActionMove::circle(&circleOffset, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -330,8 +344,9 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        ActionMove::circle(&circleJoin, speed, funcTargetFinish);
-                        vTaskSuspend(GCode::gcodeTaskHandle);
+                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
+                            vTaskSuspend(GCode::gcodeTaskHandle);
+                        }
                     }
                 }
             }
@@ -345,8 +360,8 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                 nParams->compensationRadius.value, 
                 nParams->compensationRadius.side == COMPENSATION_LEFT
             );
-            ESP_LOGI(TAG, "circleNext:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleNext->p1.x, circleNext->p1.y, circleNext->p2.x, circleNext->p2.y, circleNext->angle1*180/PI, circleNext->angle2*180/PI);
-            ESP_LOGI(TAG, "circleOffsetNext: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffsetNext.p1.x, circleOffsetNext.p1.y, circleOffsetNext.p2.x, circleOffsetNext.p2.y, circleOffsetNext.angle1*180/PI, circleOffsetNext.angle2*180/PI);
+            // ESP_LOGI(TAG, "circleNext:       p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleNext->p1.x, circleNext->p1.y, circleNext->p2.x, circleNext->p2.y, circleNext->angle1*180/PI, circleNext->angle2*180/PI);
+            // ESP_LOGI(TAG, "circleOffsetNext: p1:[%.2f : %.2f], p2:[%.2f : %.2f], a1: %.2f, a2: %.2f", circleOffsetNext.p1.x, circleOffsetNext.p1.y, circleOffsetNext.p2.x, circleOffsetNext.p2.y, circleOffsetNext.angle1*180/PI, circleOffsetNext.angle2*180/PI);
 
             // точка пересечения окружности на текущем участке пути и
             // окружностью на следующем
@@ -356,23 +371,25 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                 intersectPoint = Geometry::calcIntersectCircles(&circleOffset, &circleOffsetNext);
                 intersectPointFounded = true;
             } catch(const std::runtime_error &error){}
-            ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
+            // ESP_LOGI(TAG, "intersect founded: %d, point: [%.2f, %.2f], inner: %d", intersectPointFounded, intersectPoint.point.x, intersectPoint.point.y, intersectPoint.inner);
             if(intersectPointFounded && intersectPoint.inner){      // точка пересечения внутри
                 // отрезок на текущем участке пути
                 // до точки пересечения с окружностью
-                Geometry::Point point = Geometry::getPoint(&intersectPoint.point);
+                Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
                 circleOffset.p2 = Geometry::getPointXY(crossPoint);
                 Geometry::recalcCircleSegment(&circleOffset);
-                ActionMove::circle(&circleOffset, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
             } else{     // окружность снаружи
 
                 // окружность на текущем участке пути
                 // до конечной точки этой окружность
-                ActionMove::circle(&circleOffset, speed, funcTargetFinish);
-                vTaskSuspend(GCode::gcodeTaskHandle);
+                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
+                    vTaskSuspend(GCode::gcodeTaskHandle);
+                }
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -391,8 +408,9 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        ActionMove::circle(&circleJoin, speed, funcTargetFinish);
-                        vTaskSuspend(GCode::gcodeTaskHandle);
+                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
+                            vTaskSuspend(GCode::gcodeTaskHandle);
+                        }
                     }
                 }
             }

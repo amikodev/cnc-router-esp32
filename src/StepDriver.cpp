@@ -27,6 +27,11 @@ StepDriver::StepDriver(){
 
 }
 
+
+void StepDriver::calcK1(){
+    k1 = _pulses*_reductor/_rmm * 2;
+}
+
 /**
  * Инициализация выводов.
  * При использовании с методом initShiftLoad выбрасывается исключение.
@@ -70,6 +75,7 @@ StepDriver* StepDriver::initShiftLoad(ShiftLoad *sl, uint8_t numPul, uint8_t num
  */
 StepDriver* StepDriver::setPulses(uint16_t pulses){
     _pulses = pulses;
+    calcK1();
     return this;
 }
 
@@ -103,6 +109,7 @@ char StepDriver::getLetter(){
  */
 StepDriver* StepDriver::setReductor(float reductor){
     _reductor = reductor;
+    calcK1();
     return this;
 }
 
@@ -118,6 +125,7 @@ float StepDriver::getReductor(){
  */
 StepDriver* StepDriver::setRevMM(double mm){
     _rmm = mm;
+    calcK1();
     return this;
 }
 
@@ -139,7 +147,9 @@ StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
         dxMM = -dxMM;
         dir = true;
     }
-    uint32_t dxPulses = _pulses*_reductor*dxMM/_rmm * 2;      // количество импульсов необходимое для достижения цели
+    // double k = _pulses*_reductor/_rmm * 2;
+    uint32_t dxPulses = k1 * dxMM;       // количество импульсов необходимое для достижения цели
+    // uint32_t dxPulses = _pulses*_reductor*dxMM/_rmm * 2;      // количество импульсов необходимое для достижения цели
 
     MotorTarget *mt = &motorTarget;
     mt->stepDriver = this;
@@ -147,7 +157,8 @@ StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
     mt->dxPulses = dxPulses;
     mt->speed = speed;
 
-    mt->mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
+    // mt->mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
+    mt->mksStep = 1000000.0/( k1 * speed );
 
     return mt;
 }
@@ -182,23 +193,26 @@ void StepDriver::timerRunCallback(void* arg){
     MotorTarget *mt = (MotorTarget *)arg;
 
     if(mt->cPulse < mt->dxPulses){
+
+        bool imp = (mt->cPulse % 2) == 0;
+
         // импульс для текущей оси
-        mt->stepDriver->setPulseLevel((mt->cPulse % 2) == 0);
+        mt->stepDriver->setPulseLevel(imp);
 
         // импульсы для дочерних синхронизируемых
         for(uint8_t i=0; i<mt->stepDriver->getSyncChildsCount(); i++){
-            mt->stepDriver->getSyncChilds()[i]->setPulseLevel((mt->cPulse % 2) == 0);
+            mt->stepDriver->getSyncChilds()[i]->setPulseLevel(imp);
         }
 
         mt->cPulse++;
-        if((mt->cPulse % 2) == 0){
+        if(imp){
             mt->stepDriver->positionInc(!mt->dir ? 1 : -1);
         }
     } else{
         // остановка и удаление таймера
         mt->stepDriver->stopTimerRun();
 
-        ESP_LOGI(TAG, "timerRun stop : axe: %c, position: %llu, positionMM: %f", mt->stepDriver->getLetter(), mt->stepDriver->getPosition(), mt->stepDriver->getPositionMM());
+        // ESP_LOGI(TAG, "timerRun stop : axe: %c, position: %llu, positionMM: %f", mt->stepDriver->getLetter(), mt->stepDriver->getPosition(), mt->stepDriver->getPositionMM());
         if(mt->callbackFinish != NULL){
             mt->callbackFinish(mt->stepDriver);
         }
@@ -225,8 +239,10 @@ esp_timer_handle_t StepDriver::getTimerRun(){
  */
 void StepDriver::stopTimerRun(){
     if(_timerRun != NULL){
-        ESP_ERROR_CHECK(esp_timer_stop(_timerRun));
-        ESP_ERROR_CHECK(esp_timer_delete(_timerRun));
+        // ESP_ERROR_CHECK(esp_timer_stop(_timerRun));
+        // ESP_ERROR_CHECK(esp_timer_delete(_timerRun));
+        esp_timer_stop(_timerRun);
+        esp_timer_delete(_timerRun);
         _timerRun = NULL;
     }
 }
@@ -261,37 +277,17 @@ void StepDriver::actionRun(RUN_MODE mode, bool direction, float speed, bool stop
 
     _timerActionRun = timerActionRun;
 
-    printf("start timer action run: %d \n", mode);
-
     uint64_t mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
-
-    printf("mksStep action run: %llu \n", mksStep);
-    // if(mksStep < 50) mksStep = 50;
     if(mksStep < 60) mksStep = 60;
-    printf("mksStep action run: %llu \n", mksStep);
-
     this->setDirection(mp->dir);
 
-    /* * /
-    // тестовый код
-    // проверка времени выполнения таймера
-    if(false){
-        int64_t testCallbackM = esp_timer_get_time();
-        StepDriver::timerActionRunCallback((void *)mp);
-        printf("Test time for StepDriver::timerActionRunCallback : %lld \n", esp_timer_get_time()-testCallbackM);
-    }
-    / * */
-
     ESP_ERROR_CHECK(esp_timer_start_periodic(timerActionRun, mksStep));
-
-
 }
 
 /**
  * Окончание перемещения
  */
 void StepDriver::actionRunStop(){
-    // _modeProbe = false;
     runMode = MODE_NONE;
 
     if(_timerActionRun != NULL){
@@ -362,7 +358,7 @@ StepDriver* StepDriver::setLimMin(float limMM){
     if(_limMinMM != 0 || _limMaxMM != 0){
         // рассчёт максимальной позиции
         _positionMax = _pulses*_reductor/_rmm*(_limMaxMM-_limMinMM);
-        printf("StepDriver::setLimMin : axe: %c; _positionMax: %llu \n", _letter, _positionMax);
+        // ESP_LOGI(TAG, "setLimMin : axe: %c; _positionMax: %llu", _letter, _positionMax);
     }
     return this;
 }
@@ -376,7 +372,7 @@ StepDriver* StepDriver::setLimMax(float limMM){
     if(_limMinMM != 0 || _limMaxMM != 0){
         // рассчёт максимальной позиции
         _positionMax = _pulses*_reductor/_rmm*(_limMaxMM-_limMinMM);
-        printf("StepDriver::setLimMax : axe: %c; _positionMax: %llu \n", _letter, _positionMax);
+        // ESP_LOGI(TAG, "setLimMax : axe: %c; _positionMax: %llu", _letter, _positionMax);
     }
     return this;
 }
@@ -387,7 +383,6 @@ StepDriver* StepDriver::setLimMax(float limMM){
  */
 void StepDriver::positionInc(int32_t inc){
     _position += inc;
-    // printf("_position: %llu \n", _position);
 }
 
 /**
