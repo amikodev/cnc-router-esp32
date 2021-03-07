@@ -19,7 +19,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #ifndef __CNCROUTER_HPP__
 #define __CNCROUTER_HPP__
 
-#include "defines.hpp"
 #include "Axe.hpp"
 #include "Geometry.hpp"
 #include "StepDriver.hpp"

@@ -59,6 +59,7 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
         uint64_t mksStep = mt->mksStep;
         if(mksStep < 50) mksStep = 50;
         // ESP_LOGI(TAG, "mksStep: %llu", mksStep);
+        // ESP_LOGI(TAG, "\t\t dir: %d, [ %.4f -> %.4f ], _position: %llu, dxPulsed: %d; %s", mt->dir, sd->getPositionMM(), targetMM, sd->getPosition(), mt->dxPulses, (mt->dir?" :: FAIL DIRECTION ::":""));
 
         sd->setDirection(mt->dir);
         // ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));

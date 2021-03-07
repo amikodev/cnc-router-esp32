@@ -105,6 +105,7 @@ private:
     bool isSynced = false;                                      // синхронизируема с другой осью
 
     double k1 = 0.0;
+    double k2 = 0.0;
 
 
     void calcK1();

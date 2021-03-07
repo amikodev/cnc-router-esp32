@@ -29,7 +29,7 @@ StepDriver::StepDriver(){
 
 
 void StepDriver::calcK1(){
-    k1 = _pulses*_reductor/_rmm * 2;
+    k1 = _pulses*_reductor/_rmm;
 }
 
 /**
@@ -147,9 +147,7 @@ StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
         dxMM = -dxMM;
         dir = true;
     }
-    // double k = _pulses*_reductor/_rmm * 2;
-    uint32_t dxPulses = k1 * dxMM;       // количество импульсов необходимое для достижения цели
-    // uint32_t dxPulses = _pulses*_reductor*dxMM/_rmm * 2;      // количество импульсов необходимое для достижения цели
+    uint32_t dxPulses = ((uint32_t)(k1 * dxMM)) << 1;       // количество импульсов необходимое для достижения цели
 
     MotorTarget *mt = &motorTarget;
     mt->stepDriver = this;
@@ -157,8 +155,7 @@ StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
     mt->dxPulses = dxPulses;
     mt->speed = speed;
 
-    // mt->mksStep = 1000000.0/( _pulses*_reductor*speed/_rmm * 2 );
-    mt->mksStep = 1000000.0/( k1 * speed );
+    mt->mksStep = 1000000.0/( k1*2 * speed );
 
     return mt;
 }
@@ -294,6 +291,17 @@ void StepDriver::actionRunStop(){
         ESP_ERROR_CHECK(esp_timer_stop(_timerActionRun));
         ESP_ERROR_CHECK(esp_timer_delete(_timerActionRun));
         _timerActionRun = NULL;
+
+        MotorActionRun *mp = &motorActionRun;
+        if((mp->cPulse % 2) != 0){
+            // окончание периода сигнала перемещения
+            // импульс для текущей оси
+            mp->stepDriver->setPulseLevel((mp->cPulse % 2) == 0);
+            // импульсы для дочерних синхронизируемых осей
+            for(uint8_t i=0; i<mp->stepDriver->getSyncChildsCount(); i++){
+                mp->stepDriver->getSyncChilds()[i]->setPulseLevel((mp->cPulse % 2) == 0);
+            }
+        }
     }
 }
 
@@ -357,7 +365,9 @@ StepDriver* StepDriver::setLimMin(float limMM){
     _limMinMM = limMM;
     if(_limMinMM != 0 || _limMaxMM != 0){
         // рассчёт максимальной позиции
-        _positionMax = _pulses*_reductor/_rmm*(_limMaxMM-_limMinMM);
+        float dLimMM = _limMaxMM-_limMinMM;
+        _positionMax = _pulses*_reductor/_rmm*dLimMM;
+        k2 = dLimMM/_positionMax;
         // ESP_LOGI(TAG, "setLimMin : axe: %c; _positionMax: %llu", _letter, _positionMax);
     }
     return this;
@@ -371,7 +381,9 @@ StepDriver* StepDriver::setLimMax(float limMM){
     _limMaxMM = limMM;
     if(_limMinMM != 0 || _limMaxMM != 0){
         // рассчёт максимальной позиции
-        _positionMax = _pulses*_reductor/_rmm*(_limMaxMM-_limMinMM);
+        float dLimMM = _limMaxMM-_limMinMM;
+        _positionMax = _pulses*_reductor/_rmm*dLimMM;
+        k2 = dLimMM/_positionMax;
         // ESP_LOGI(TAG, "setLimMax : axe: %c; _positionMax: %llu", _letter, _positionMax);
     }
     return this;
@@ -390,7 +402,8 @@ void StepDriver::positionInc(int32_t inc){
  */
 float StepDriver::getPositionMM(){
     int64_t pos = (int64_t)_position;
-    _positionMM = (_limMaxMM-_limMinMM)/_positionMax*pos+_limMinMM;
+    // _positionMM = (_limMaxMM-_limMinMM)/_positionMax*pos+_limMinMM;
+    _positionMM = k2*pos+_limMinMM;
     return _positionMM;
 }
 

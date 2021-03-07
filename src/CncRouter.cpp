@@ -247,7 +247,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
             dataResp[1] = EQUIPMENT_TYPE;
             dataResp[2] = EQUIPMENT_SUBTYPE;
 
-            uint32_t version = VERSION;
+            uint32_t version = (VERSION_MAJOR<<24) + (VERSION_MINOR<<16) + (VERSION_BUILD<<8) + (VERSION_REVISION);
             memcpy((dataResp+3), &version, sizeof(uint32_t));
 
             Plasma *plasma = instance->getPlasma();

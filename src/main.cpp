@@ -61,7 +61,7 @@ void app_main() {
         ->initPins(GPIO_NUM_15, GPIO_NUM_2)
         ->setPulses(3200)
         ->setLetter('X')
-        ->setRevMM(100.0*1.06273)
+        ->setRevMM(100.0*1.06049)
         ->setLimMin(0.0)
         ->setLimMax(1550.0)
     ;
@@ -72,7 +72,7 @@ void app_main() {
         ->setPulses(800)
         ->setReductor(4)
         ->setLetter('Y')
-        ->setRevMM(100.0*1.04888)
+        ->setRevMM(100.0*1.04433)
         ->setLimMin(0.0)
         ->setLimMax(2600.0)
     ;
