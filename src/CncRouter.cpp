@@ -40,6 +40,7 @@ const uint8_t CncRouter::WS_OBJ_NAME_AXE = 0x52;
 const uint8_t CncRouter::WS_OBJ_NAME_COORDS = 0x53;
 const uint8_t CncRouter::WS_OBJ_NAME_COORD_TARGET = 0x54;
 const uint8_t CncRouter::WS_OBJ_NAME_PLASMA_ARC = 0x55;
+const uint8_t CncRouter::WS_OBJ_NAME_COORD_SYSTEM = 0x56;
 
 const uint8_t CncRouter::WS_CMD_READ = 0x01;
 const uint8_t CncRouter::WS_CMD_WRITE = 0x02;
@@ -203,6 +204,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                 // memcpy(&point.y, data+6, 4);
                 // memcpy(&point.z, data+10, 4);
                 memcpy(&point, data+2, 12);
+                point.log(TAG, "Coord target");
                 float speed = GCode::getFastSpeed();        // mm/sec
                 if(speed == 0.0) speed = 50.0;
                 ActionMove::gotoPoint(&point, speed, NULL);
@@ -268,7 +270,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                 // .data = (uint8_t *) &dataResp
                 .ptr = malloc(48)
             };
-            memcpy(wsData.ptr, &dataResp, 48);
+            memcpy(wsData.ptr, &dataResp, wsData.size);
 
             // wsData.size = 48;
             // // wsData.ptr = dataResp;
@@ -286,6 +288,47 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
             // xTaskCreate(CncRouter::wsSendCustomTask, "wsSendCustomTask", 2048, (void *) &wsData, 10, NULL);
 
 
+        }
+
+        // работа с системами координат
+        else if(*(data) == WS_OBJ_NAME_COORD_SYSTEM){
+            uint8_t dataResp[16] = {0};
+            for(uint8_t i=0; i<16; i++) dataResp[i] = i;
+            CoordSystem::SYSTEM_TYPE system = (CoordSystem::SYSTEM_TYPE)((*(data+1)) & 0x7F);
+            bool isWrite = (*(data+1)>>7);
+            CoordSystem *cs = instance->getCoordSystem();
+            if(isWrite){
+                dataResp[0] = WS_OBJ_NAME_COORD_SYSTEM;
+                dataResp[1] = (isWrite << 7) + system;
+                Geometry::Point point;
+                memset(&point, 0x00, sizeof(Geometry::Point));
+                if(cs != NULL){
+                    memcpy(&point, data+2, 12);
+                    if(system == CoordSystem::COORD_SYSTEM_USER){
+                        cs->setUserZero(&point);
+                        memcpy((dataResp+2), &point, 12);
+                    }
+                } else{
+                    ESP_LOGW(TAG, "Coord system not defined");
+                }
+            } else{     // read
+                dataResp[0] = WS_OBJ_NAME_COORD_SYSTEM;
+                dataResp[1] = system;
+                if(cs != NULL){
+                    if(system == CoordSystem::COORD_SYSTEM_USER){
+                        Geometry::Point point = cs->getUserZero();
+                        memcpy((dataResp+2), &point, 12);
+                    }
+                } else{
+                    ESP_LOGW(TAG, "Coord system not defined");
+                }
+            }
+            static WsData wsData = {
+                .size = 16,
+                .ptr = malloc(16)
+            };
+            memcpy(wsData.ptr, &dataResp, wsData.size);
+            xQueueGenericSend(wsSendCustomEvtQueue, (void *) &wsData, (TickType_t) 0, queueSEND_TO_BACK);
         }
 
     } else if(length > 16){
@@ -460,6 +503,7 @@ void CncRouter::wsSendTask(void *arg){
     uint8_t data[16] = {0};
     for(;;){
         if(xQueueReceive(wsSendEvtQueue, &data, portMAX_DELAY)){
+            // ESP_LOG_BUFFER_HEXDUMP("wsSendTask", &data, 16, ESP_LOG_INFO);
             ws_server_send_bin_all((char *)&data, 16);
         }
     }
@@ -472,6 +516,7 @@ void CncRouter::wsSendCustomTask(void *arg){
     WsData *wsData = new WsData();
     for(;;){
         if(xQueueReceive(wsSendCustomEvtQueue, wsData, portMAX_DELAY)){
+            // ESP_LOG_BUFFER_HEXDUMP("wsSendCustomTask", wsData->ptr, 16, ESP_LOG_INFO);
             ws_server_send_bin_all((char *) wsData->ptr, wsData->size);
             // free(wsData->ptr);
         }
@@ -602,6 +647,21 @@ void CncRouter::notifyGcodeFinish(){
     dataResp[2] = 0x00;
     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
 
+}
+
+/**
+ * Установка систем координат
+ * @param system системы координат
+ */
+void CncRouter::setCoordSystem(CoordSystem *system){
+    _coordSystem = system;
+}
+
+/**
+ * Получение системы координат
+ */
+CoordSystem* CncRouter::getCoordSystem(){
+    return _coordSystem;
 }
 
 

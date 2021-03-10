@@ -76,7 +76,7 @@ public:
      * @param speed скорость, мм/сек
      * @param funcFinish функция вызываемая при окончании перемещения
      */
-    static bool gotoPoint(Geometry::Point *point, float speed, std::function<void ()> funcFinish);
+    static bool gotoPoint(Geometry::Point *point, float speed, std::function<void ()> *funcFinish);
 
     /**
      * Прямолинейное движение к точке
@@ -84,7 +84,7 @@ public:
      * @param speed скорость, мм/сек
      * @param funcFinish функция вызываемая при окончании перемещения
      */
-    static bool gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> funcFinish);
+    static bool gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> *funcFinish);
 
     /**
      * Движение по кружности

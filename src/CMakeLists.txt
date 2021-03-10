@@ -9,6 +9,7 @@ set(app_sources
     "gcode/GCode.cpp"
     "gcode/GCodeCR.cpp"
     "Plasma.cpp"
+    "CoordSystem.cpp"
 
 )
 

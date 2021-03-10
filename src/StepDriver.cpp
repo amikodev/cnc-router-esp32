@@ -374,6 +374,13 @@ StepDriver* StepDriver::setLimMin(float limMM){
 }
 
 /**
+ * Получение минимального предела
+ */
+float StepDriver::getLimMin(){
+    return _limMinMM;
+}
+
+/**
  * Установка максимального предела
  * @param limMM максимальный предел, в мм
  */
@@ -387,6 +394,13 @@ StepDriver* StepDriver::setLimMax(float limMM){
         // ESP_LOGI(TAG, "setLimMax : axe: %c; _positionMax: %llu", _letter, _positionMax);
     }
     return this;
+}
+
+/**
+ * Получение максимального предела
+ */
+float StepDriver::getLimMax(){
+    return _limMaxMM;
 }
 
 /**

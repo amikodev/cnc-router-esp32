@@ -26,6 +26,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "gcode/GCode.hpp"
 #include "gcode/GCodeCRP.hpp"
 #include "Plasma.hpp"
+#include "CoordSystem.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -86,6 +87,7 @@ private:
     StepDriver *probeAxe = NULL;
 
     Plasma *_plasma = NULL;     // плазма
+    CoordSystem *_coordSystem = NULL;   // системы координат
 
     bool _testRunChecked = false;
 
@@ -105,6 +107,7 @@ private:
     static const uint8_t WS_OBJ_NAME_COORDS;
     static const uint8_t WS_OBJ_NAME_COORD_TARGET;
     static const uint8_t WS_OBJ_NAME_PLASMA_ARC;
+    static const uint8_t WS_OBJ_NAME_COORD_SYSTEM;
 
     static const uint8_t WS_CMD_READ;
     static const uint8_t WS_CMD_WRITE;
@@ -260,6 +263,17 @@ public:
      * Уведомление о завершении выполнения программы gcode
      */
     static void notifyGcodeFinish();
+
+    /**
+     * Установка систем координат
+     * @param system системы координат
+     */
+    void setCoordSystem(CoordSystem *system);
+
+    /**
+     * Получение системы координат
+     */
+    CoordSystem* getCoordSystem();
 
 };
 

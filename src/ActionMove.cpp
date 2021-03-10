@@ -59,7 +59,7 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
         uint64_t mksStep = mt->mksStep;
         if(mksStep < 50) mksStep = 50;
         // ESP_LOGI(TAG, "mksStep: %llu", mksStep);
-        // ESP_LOGI(TAG, "\t\t dir: %d, [ %.4f -> %.4f ], _position: %llu, dxPulsed: %d; %s", mt->dir, sd->getPositionMM(), targetMM, sd->getPosition(), mt->dxPulses, (mt->dir?" :: FAIL DIRECTION ::":""));
+        // ESP_LOGI(TAG, "\t\t axe: %c, dir: %d, [ %.4f -> %.4f ], _position: %llu, dxPulsed: %d; %s", sd->getLetter(), mt->dir, sd->getPositionMM(), targetMM, sd->getPosition(), mt->dxPulses, (mt->dir?" :: FAIL DIRECTION ::":""));
 
         sd->setDirection(mt->dir);
         // ESP_ERROR_CHECK(esp_timer_start_periodic(timerRun, mksStep));
@@ -74,7 +74,7 @@ void ActionMove::gotoAxePoint(Axe::AXE axe, float targetMM, float speed, std::fu
  * @param speed скорость, мм/сек
  * @param funcFinish функция вызываемая при окончании перемещения
  */
-bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<void ()> funcFinish){
+bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<void ()> *funcFinish){
 
     Axe::AXES_COUNT axesCount = Axe::getAxesCount();
 
@@ -124,15 +124,16 @@ bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
     }
 
     std::function<void (StepDriver *sd)> funcStepDriverFinish = [&, axeMoveCount](StepDriver *sd){
+        // ESP_LOGI(TAG, "funcFinish is %s", funcFinish == NULL ? "NULL" : "not NULL");
         if(funcFinish == NULL){
             ActionMove::axeMoveCounter = 0;
-            // ESP_LOGI(TAG, "funcFinish is NULL");
         }
 
         // ESP_LOGI(TAG, "funcStepDriverFinish: axeMoveCount: %d, axeMoveCounter: %d", axeMoveCount, ActionMove::axeMoveCounter+1);
         if(++ActionMove::axeMoveCounter == axeMoveCount && funcFinish != NULL){
             ActionMove::axeMoveCounter = 0;
-            funcFinish();
+            // ESP_LOGI(TAG, "call funcFinish");
+            (*funcFinish)();
         }
     };
 
@@ -141,7 +142,8 @@ bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
         if(dvals[i] != 0.0){
             float spV = abs(dvals[i])/length*speed;         // разложенная скорость по оси
             ActionMove::gotoAxePoint((Axe::AXE) i, pvals[i], spV, funcStepDriverFinish);
-            // ESP_LOGI(TAG, "gotoAxePoint: axe: %d, spV: %f", i, spV);
+            // необходимо оставить этот вывод (без него контроллер перезагружается)
+            ESP_LOGI(TAG, "gotoAxePoint: axe: %c, value: %.4f, speed: %.4f", Axe::getStepDriver((Axe::AXE) i)->getLetter(), pvals[i], spV);
         }
     }
     
@@ -154,15 +156,7 @@ bool ActionMove::gotoPoint(Geometry::Point *point, float speed, std::function<vo
  * @param speed скорость, мм/сек
  * @param funcFinish функция вызываемая при окончании перемещения
  */
-bool ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> funcFinish){
-    // ActionMove::gotoPoint((Geometry::Point *) point, speed, funcFinish);
-
-    // Geometry::Point point2 = {
-    //     .x = point->x,
-    //     .y = point->y,
-    //     .z = 0.0, .a = 0.0, .b = 0.0, .c = 0.0
-    // };
-
+bool ActionMove::gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> *funcFinish){
     Geometry::Point point2 = Geometry::getPoint(point);
     return gotoPoint(&point2, speed, funcFinish);
 }
@@ -231,7 +225,7 @@ void ActionMove::circleTask(void *arg){
 
             // ESP_LOGI(TAG_CIRCLE, "x: %.2f, y: %.2f, angle: %.2f", circlePoint.x, circlePoint.y, cAngle*180/PI);
 
-            if(gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish)){
+            if(gotoPoint(&circlePoint, circleTaskData->speed, &funcTargetFinish)){
                 vTaskSuspend(NULL);
             }
             cAngle += dAngle;
@@ -242,7 +236,7 @@ void ActionMove::circleTask(void *arg){
     if(steps > 0 && !Geometry::pointsIsEqual(&circle->p1, &circle->p2)){
         // ESP_LOGI(TAG_CIRCLE, "goto last point");
         Geometry::Point circlePoint = Geometry::getPoint(&(circle->p2), defaultPoint);
-        if(gotoPoint(&circlePoint, circleTaskData->speed, funcTargetFinish)){
+        if(gotoPoint(&circlePoint, circleTaskData->speed, &funcTargetFinish)){
             vTaskSuspend(NULL);
         }
     }

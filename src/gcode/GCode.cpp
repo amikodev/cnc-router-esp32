@@ -38,7 +38,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .currentCoord = __POINT_NULL, \
     .targetCoord = __POINT_NULL, \
     .offsetCoord = __POINT_NULL, \
-    .userZeroPoint = __POINT_NULL, \
     .unit = UNIT_METRIC, \
     .circle = { .type = CIRCLE_RADIUS, .radius = 0, .inc = { .i=0, .j=0, .k=0 } }, \
     .circleSegment = __CIRCLE_NULL, \
@@ -66,7 +65,8 @@ const GCode::GCODE_LETTER GCode::codeVal4length[] = {
 
 GCode::ProgParams GCode::progParams = DEFAULT_PROG();
 Geometry::Point GCode::pointNull = __POINT_NULL;
-Plasma* GCode::_plasma = NULL;
+Plasma* GCode::_plasma = NULL;              // плазма
+CoordSystem* GCode::_coordSystem = NULL;    // системы координат
 
 float GCode::_fastSpeed = 0.0;                // скорость быстрого перемещения, мм/сек
 float GCode::_workSpeed = 0.0;                // рабочая скорость перемещения, мм/сек
@@ -389,9 +389,6 @@ void GCode::setTestRunChecked(bool checked){
  */
 void GCode::setDefaultProgParams(){
     progParams = DEFAULT_PROG();
-
-    if(Axe::getStepDriver(Axe::AXE_Z) != NULL)
-        progParams.targetCoord.z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
 
 }
 
@@ -765,13 +762,18 @@ bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLe
  * @param pParams параметры программы
  */
 Geometry::Point GCode::calcTargetPoint(ProgParams *pParams){
+    
+    // выбранная система координат
+    // в данный момент используется только пользовательский ноль
+    Geometry::Point coordSystemPoint = _coordSystem != NULL ? _coordSystem->getUserZero() : __POINT_NULL;
+
     Geometry::Point point = {
-        .x = pParams->targetCoord.x + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.x : 0),
-        .y = pParams->targetCoord.y + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.y : 0),
-        .z = pParams->targetCoord.z + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.z : 0),
-        .a = pParams->targetCoord.a + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.a : 0),
-        .b = pParams->targetCoord.b + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.b : 0),
-        .c = pParams->targetCoord.c + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.c : 0)
+        .x = pParams->targetCoord.x + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.x : 0) + coordSystemPoint.x,
+        .y = pParams->targetCoord.y + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.y : 0) + coordSystemPoint.y,
+        .z = pParams->targetCoord.z + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.z : 0) + coordSystemPoint.z,
+        .a = pParams->targetCoord.a + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.a : 0) + coordSystemPoint.a,
+        .b = pParams->targetCoord.b + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.b : 0) + coordSystemPoint.b,
+        .c = pParams->targetCoord.c + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.c : 0) + coordSystemPoint.c
     };
     return point;
 }
@@ -809,7 +811,7 @@ void GCode::processPath(Geometry::Point *targetPoint, ProgParams *targetParams, 
     };
 
     if(isLinearInterpolation(targetParams)){
-        if(ActionMove::gotoPoint(targetPoint, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(targetPoint, speed, &funcTargetFinish)){
             vTaskSuspend(gcodeTaskHandle);
         }
     } else if(isCircleInterpolation(targetParams)){
@@ -939,6 +941,14 @@ void GCode::setNotifyNumLineFunc(NotifyNumLineFunc func){
  */
 void GCode::setNotifyFinishFunc(NotifyFinishFunc func){
     notifyFinishFunc = func;
+}
+
+/**
+ * Установка систем координат
+ * @param system системы координат
+ */
+void GCode::setCoordSystem(CoordSystem *system){
+    _coordSystem = system;
 }
 
 

@@ -79,7 +79,7 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
     Geometry::Point p2p = Geometry::getPoint(&lineOffset.p2, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(&p1p, speed, &funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
     } else{
@@ -92,10 +92,10 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
     }
 
     if(nParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(&p2p, speed, &funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
-        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, &funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
     } else{
@@ -124,14 +124,14 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                if(ActionMove::gotoPoint(crossPoint, speed, funcTargetFinish)){
+                if(ActionMove::gotoPoint(crossPoint, speed, &funcTargetFinish)){
                     vTaskSuspend(GCode::gcodeTaskHandle);
                 }
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+                if(ActionMove::gotoPoint(&p2p, speed, &funcTargetFinish)){
                     vTaskSuspend(GCode::gcodeTaskHandle);
                 }
 
@@ -193,14 +193,14 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                if(ActionMove::gotoPoint(&point, speed, funcTargetFinish)){
+                if(ActionMove::gotoPoint(&point, speed, &funcTargetFinish)){
                     vTaskSuspend(GCode::gcodeTaskHandle);
                 }
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
+                if(ActionMove::gotoPoint(&p2p, speed, &funcTargetFinish)){
                     vTaskSuspend(GCode::gcodeTaskHandle);
                 }
 
@@ -263,7 +263,7 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
     Geometry::Point p1p = Geometry::getPoint(&circleOffset.p1, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(&p1p, speed, &funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
 
@@ -284,7 +284,7 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
         if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
-        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
+        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, &funcTargetFinish)){
             vTaskSuspend(GCode::gcodeTaskHandle);
         }
 
