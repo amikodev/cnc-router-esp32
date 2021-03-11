@@ -737,6 +737,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
 bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLength){
     bool processThisCommand = true;
     switch(value){
+        case 1:     // M01 - включить плазму (постпроцессор asketcnc_plasma)
         case 3:     // M03 - включить плазму
         case 7:     // M07 - включить плазму
             if(!_testRunChecked){       // тестовый прогон программы gcode выключен
@@ -745,6 +746,7 @@ bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLe
                 }
             }
             break;
+        case 2:     // M02 - выключить плазму (постпроцессор asketcnc_plasma)
         case 5:     // M05 - выключить плазму
         case 8:     // M08 - выключить плазму
             if(!_testRunChecked){       // тестовый прогон программы gcode выключен
