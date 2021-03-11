@@ -18,6 +18,7 @@ set(includes
 
 set(reqs
     spiffs
+    nvs_flash
 )
 
 set(files

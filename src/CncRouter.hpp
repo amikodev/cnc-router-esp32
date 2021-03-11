@@ -46,6 +46,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "driver/gpio.h"
 
 #include "websocket_server.h"
+#include "esp_r1_api.h"
 
 /**
  * ЧПУ станок
@@ -260,6 +261,16 @@ public:
      * Уведомление о завершении выполнения программы gcode
      */
     static void notifyGcodeFinish();
+
+    /**
+     * Функция обработки нажатия кнопок джойстика Magicsee R1
+     */
+    static void magicseeKeyboardProcessEvent(esp_r1_keyboard_data_t *data);
+
+    /**
+     * Функция обработки событий от устройства джойстика Magicsee R1
+     */
+    static void magicseeDeviceEvent(esp_r1_device_event_e event);
 
 };
 

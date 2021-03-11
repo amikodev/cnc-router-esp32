@@ -19,6 +19,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "CncRouter.hpp"
 
 #define TAG "CncRouter"
+#define TAG_MAGICSEE "Magicsee"
 
 CncRouter* CncRouter::instance = NULL;
 
@@ -604,5 +605,118 @@ void CncRouter::notifyGcodeFinish(){
 
 }
 
+/**
+ * Функция обработки нажатия кнопок джойстика Magicsee R1
+ */
+void CncRouter::magicseeKeyboardProcessEvent(esp_r1_keyboard_data_t *data){
+    ESP_LOGI(TAG_MAGICSEE, "event: %d in state %d", data->id, data->state);
+
+    float speed = GCode::getWorkSpeed();
+    bool runAfterLimit = true;
+    StepDriver *sd = NULL;
+    uint8_t dir;
+
+    // std::function<void (StepDriver *sd, uint8_t dir)> runAxe = [&](StepDriver *sd, uint8_t dir){
+
+    // };
+
+    switch(data->id){
+        case R1_BUTTON2:        // кнопка A
+        case R1_BUTTON4:        // кнопка B
+        case R1_BUTTON1:        // кнопка C
+        case R1_BUTTON5:        // кнопка D
+            break;
+        case R1_BUTTON7:        // нижняя кнопка 
+            sd = Axe::getStepDriver(Axe::AXE_Z);
+            if(data->state == R1_KEY_PRESSED){
+                // Z-
+                dir = WS_AXE_DIRECTION_BACKWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            } else{
+                // остановить движение
+                ESP_LOGI(TAG_MAGICSEE, " --STOP-- axe: %c", sd->getLetter());
+                sd->actionRunStop();
+            }
+            break;
+        case R1_BUTTON8:        // верхняя кнопка 
+            sd = Axe::getStepDriver(Axe::AXE_Z);
+            if(data->state == R1_KEY_PRESSED){
+                // Z+
+                dir = WS_AXE_DIRECTION_FORWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            } else{
+                // остановить движение
+                ESP_LOGI(TAG_MAGICSEE, " --STOP-- axe: %c", sd->getLetter());
+                sd->actionRunStop();
+            }
+            break;
+        case R1_AXIS_X:         // джойстик X
+            sd = Axe::getStepDriver(Axe::AXE_X);
+            if(data->state == R1_AXIS_PLUS){
+                // X-
+                dir = WS_AXE_DIRECTION_BACKWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            } else if(data->state == R1_AXIS_CENTER){
+                // остановить движение
+                ESP_LOGI(TAG_MAGICSEE, " --STOP-- axe: %c", sd->getLetter());
+                sd->actionRunStop();
+            } else if(data->state == R1_AXIS_MINUS){
+                // X+
+                dir = WS_AXE_DIRECTION_FORWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            }
+            break;
+        case R1_AXIS_Y:         // джойстик Y
+            sd = Axe::getStepDriver(Axe::AXE_Y);
+            if(data->state == R1_AXIS_PLUS){
+                // Y+
+                dir = WS_AXE_DIRECTION_FORWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            } else if(data->state == R1_AXIS_CENTER){
+                // остановить движение
+                ESP_LOGI(TAG_MAGICSEE, " --STOP-- axe: %c", sd->getLetter());
+                sd->actionRunStop();
+            } else if(data->state == R1_AXIS_MINUS){
+                // Y-
+                dir = WS_AXE_DIRECTION_BACKWARD;
+                ESP_LOGI(TAG_MAGICSEE, " --RUN-- axe: %c; dir: %d; speed: %f; runAfterLimit: %d", sd->getLetter(), dir, speed, runAfterLimit);
+                sd->actionRunStop();
+                sd->actionRun(StepDriver::MODE_MOVE, dir == WS_AXE_DIRECTION_FORWARD ? false : true, speed, !runAfterLimit);
+            }
+            break;
+        default:
+            break;
+
+    };
+}
+
+/**
+ * Функция обработки событий от устройства джойстика Magicsee R1
+ */
+void CncRouter::magicseeDeviceEvent(esp_r1_device_event_e event){
+    switch(event){
+        case R1_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG_MAGICSEE, "event: disconnected");
+            Axe::getStepDriver(Axe::AXE_X)->actionRunStop();
+            Axe::getStepDriver(Axe::AXE_Y)->actionRunStop();
+            Axe::getStepDriver(Axe::AXE_Z)->actionRunStop();
+            break;
+        case R1_EVENT_CONNECTED:
+            ESP_LOGI(TAG_MAGICSEE, "event: connected");
+            break;
+        default:
+            break;
+    }
+}
 
 

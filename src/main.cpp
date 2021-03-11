@@ -30,6 +30,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "esp_event.h"
 #include <unistd.h>
 #include "esp_timer.h"
+#include "nvs_flash.h"
 
 
 #include "wifi.hpp"
@@ -37,6 +38,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "sdcard-storage.hpp"
 #include "spiffs-storage.hpp"
 #include "shiftload.hpp"
+#include "esp_r1_api.h"
 
 #include "Axe.hpp"
 #include "CncRouter.hpp"
@@ -140,6 +142,22 @@ void app_main() {
 
     // запустить задачу уведомления об изменении текущих координат
     router->enableCurrentPointNotify();
+
+
+    // nvs flash
+    esp_err_t ret;
+    ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
+    // Bluetooth joystick MagicSee R1
+    ESP_ERROR_CHECK(esp_r1_init());
+    ESP_ERROR_CHECK(esp_r1_keyboard_register_callback(CncRouter::magicseeKeyboardProcessEvent));
+    ESP_ERROR_CHECK(esp_r1_device_event_register_callback(CncRouter::magicseeDeviceEvent));
+    ESP_ERROR_CHECK(esp_r1_enable());
 
 }
 
