@@ -250,10 +250,20 @@ public:
     StepDriver* setLimMin(float limMM);
 
     /**
+     * Получение минимального предела
+     */
+    float getLimMin();
+
+    /**
      * Установка максимального предела
      * @param limMM максимальный предел, в мм
      */
     StepDriver* setLimMax(float limMM);
+
+    /**
+     * Получение максимального предела
+     */
+    float getLimMax();
 
     /**
      * Изменение текущей позиции

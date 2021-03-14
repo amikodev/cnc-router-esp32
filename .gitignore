@@ -5,3 +5,9 @@ sdkconfig.old
 /reactjs
 firmware.elf
 /build
+
+# macos .DS_Store
+.DS_Store
+data/.DS_Store
+data/web/.DS_Store
+data/web/g/.DS_Store

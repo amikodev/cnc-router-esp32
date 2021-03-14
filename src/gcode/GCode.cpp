@@ -38,7 +38,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .currentCoord = __POINT_NULL, \
     .targetCoord = __POINT_NULL, \
     .offsetCoord = __POINT_NULL, \
-    .userZeroPoint = __POINT_NULL, \
     .unit = UNIT_METRIC, \
     .circle = { .type = CIRCLE_RADIUS, .radius = 0, .inc = { .i=0, .j=0, .k=0 } }, \
     .circleSegment = __CIRCLE_NULL, \
@@ -66,7 +65,8 @@ const GCode::GCODE_LETTER GCode::codeVal4length[] = {
 
 GCode::ProgParams GCode::progParams = DEFAULT_PROG();
 Geometry::Point GCode::pointNull = __POINT_NULL;
-Plasma* GCode::_plasma = NULL;
+Plasma* GCode::_plasma = NULL;              // плазма
+CoordSystem* GCode::_coordSystem = NULL;    // системы координат
 
 float GCode::_fastSpeed = 0.0;                // скорость быстрого перемещения, мм/сек
 float GCode::_workSpeed = 0.0;                // рабочая скорость перемещения, мм/сек
@@ -207,7 +207,7 @@ void GCode::gcodeTask(void *arg){
         return speed;
     };
 
-    for(;;){
+    std::function<void ()> calcFrame = [&](){
         uint8_t sDataInd = 0;
         frameLength = 0;
 
@@ -262,7 +262,10 @@ void GCode::gcodeTask(void *arg){
             }
             gcodeFramePtrOffset += 16;
         }
+    };
 
+    for(;;){
+        calcFrame();
 
         if(processFrame(frame, frameLength)){
             Geometry::Point nextPoint = calcTargetPoint(&progParams);
@@ -389,9 +392,6 @@ void GCode::setTestRunChecked(bool checked){
  */
 void GCode::setDefaultProgParams(){
     progParams = DEFAULT_PROG();
-
-    if(Axe::getStepDriver(Axe::AXE_Z) != NULL)
-        progParams.targetCoord.z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
 
 }
 
@@ -689,9 +689,21 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             progParams.coordType = COORD_RELATIVE;
             break;
         case 92:    // G92 - Смещение абсолютной системы координат
+        {
             progParams.coordType = COORD_OFFSET;
             memcpy(&progParams.targetCoord, &pointNull, sizeof(Geometry::Point));
             memcpy(&progParams.offsetCoord, &progParams.currentCoord, sizeof(Geometry::Point));
+
+            // выбранная система координат
+            // в данный момент используется только пользовательский ноль
+            Geometry::Point coordSystemPoint = _coordSystem != NULL ? _coordSystem->getUserZero() : __POINT_NULL;
+            progParams.offsetCoord.x -= coordSystemPoint.x;
+            progParams.offsetCoord.y -= coordSystemPoint.y;
+            progParams.offsetCoord.z -= coordSystemPoint.z;
+            progParams.offsetCoord.a -= coordSystemPoint.a;
+            progParams.offsetCoord.b -= coordSystemPoint.b;
+            progParams.offsetCoord.c -= coordSystemPoint.c;
+
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
@@ -719,6 +731,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             }
             processThisCommand = false;
             break;
+        }
         case 94:    // G94 - F (подача) — в формате мм/мин
         case 95:    // G95 - F (подача) — в формате мм/об
         case 99:    // G99 - После каждого цикла не отходить на «проходную точку»
@@ -767,13 +780,18 @@ bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLe
  * @param pParams параметры программы
  */
 Geometry::Point GCode::calcTargetPoint(ProgParams *pParams){
+    
+    // выбранная система координат
+    // в данный момент используется только пользовательский ноль
+    Geometry::Point coordSystemPoint = _coordSystem != NULL ? _coordSystem->getUserZero() : __POINT_NULL;
+
     Geometry::Point point = {
-        .x = pParams->targetCoord.x + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.x : 0),
-        .y = pParams->targetCoord.y + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.y : 0),
-        .z = pParams->targetCoord.z + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.z : 0),
-        .a = pParams->targetCoord.a + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.a : 0),
-        .b = pParams->targetCoord.b + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.b : 0),
-        .c = pParams->targetCoord.c + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.c : 0)
+        .x = pParams->targetCoord.x + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.x : 0) + coordSystemPoint.x,
+        .y = pParams->targetCoord.y + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.y : 0) + coordSystemPoint.y,
+        .z = pParams->targetCoord.z + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.z : 0) + coordSystemPoint.z,
+        .a = pParams->targetCoord.a + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.a : 0) + coordSystemPoint.a,
+        .b = pParams->targetCoord.b + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.b : 0) + coordSystemPoint.b,
+        .c = pParams->targetCoord.c + (pParams->coordType == COORD_OFFSET ? pParams->offsetCoord.c : 0) + coordSystemPoint.c
     };
     return point;
 }
@@ -804,22 +822,11 @@ void GCode::calcCircleSegment(Geometry::Point *currentPoint, Geometry::Point *ta
  * @param speed скорость, мм/сек
  */
 void GCode::processPath(Geometry::Point *targetPoint, ProgParams *targetParams, float speed){
-
-    std::function<void ()> funcTargetFinish = [&](){
-        // ESP_LOGI(TAG, "funcTargetFinish");
-        vTaskResume(gcodeTaskHandle);
-    };
-
     if(isLinearInterpolation(targetParams)){
-        if(ActionMove::gotoPoint(targetPoint, speed, funcTargetFinish)){
-            vTaskSuspend(gcodeTaskHandle);
-        }
+        ActionMove::gotoPoint(targetPoint, speed);
     } else if(isCircleInterpolation(targetParams)){
-        if(ActionMove::circle(&targetParams->circleSegment, speed, funcTargetFinish)){
-            vTaskSuspend(gcodeTaskHandle);
-        }
+        ActionMove::circle(&targetParams->circleSegment, speed);
     }
-
 }
 
 /**
@@ -941,6 +948,14 @@ void GCode::setNotifyNumLineFunc(NotifyNumLineFunc func){
  */
 void GCode::setNotifyFinishFunc(NotifyFinishFunc func){
     notifyFinishFunc = func;
+}
+
+/**
+ * Установка систем координат
+ * @param system системы координат
+ */
+void GCode::setCoordSystem(CoordSystem *system){
+    _coordSystem = system;
 }
 
 

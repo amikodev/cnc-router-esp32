@@ -43,6 +43,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "Axe.hpp"
 #include "CncRouter.hpp"
 #include "Plasma.hpp"
+#include "CoordSystem.hpp"
 
 #define TAG "CNC Router main"
 
@@ -116,6 +117,13 @@ void app_main() {
 
     GCode::setFastSpeed(70.0);
     GCode::setWorkSpeed(50.0);
+
+    // системы координат
+    CoordSystem *coordSystem = new CoordSystem();
+    Geometry::Point userZeroPoint = { .x=0, .y=0, .z=Axe::getStepDriver(Axe::AXE_Z)->getLimMin(), .a=0, .b=0, .c=0 };
+    coordSystem->setUserZero(&userZeroPoint);
+    router->setCoordSystem(coordSystem);
+    GCode::setCoordSystem(coordSystem);
 
     // Wifi
     Wifi wifi;

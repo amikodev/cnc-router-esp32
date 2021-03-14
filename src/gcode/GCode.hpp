@@ -23,6 +23,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "GCodeCR.hpp"
 #include "ActionMove.hpp"
 #include "Plasma.hpp"
+#include "CoordSystem.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -118,7 +119,6 @@ public:
         Geometry::Point currentCoord;       // текущие координаты (абсолютные)
         Geometry::Point targetCoord;        // целевые координаты (абсолютные или относительные, в зависимости от coordSystem)
         Geometry::Point offsetCoord;        // координаты смещения (G92)
-        Geometry::Point userZeroPoint;      // координаты пользовательского "нуля"
         UNIT_TYPE unit;                     // единицы измерения
         Circle circle;                      // окружность
         Geometry::CircleSegment circleSegment;  // сегмент окружности (рассчитанный на основе circle)
@@ -147,6 +147,7 @@ private:
     static ProgParams progParams;           // текущие параметры программы
     static Geometry::Point pointNull;       // нулевые координаты: x=0, y=0, z=0, a=0, b=0, c=0
     static Plasma *_plasma;                 // плазма
+    static CoordSystem *_coordSystem;       // системы координат
 
     static float _fastSpeed;                // скорость быстрого перемещения, мм/сек
     static float _workSpeed;                // рабочая скорость перемещения, мм/сек
@@ -319,6 +320,12 @@ public:
      * @param func функция
      */
     static void setNotifyFinishFunc(NotifyFinishFunc func);
+
+    /**
+     * Установка систем координат
+     * @param system системы координат
+     */
+    static void setCoordSystem(CoordSystem *system);
 
 };
 

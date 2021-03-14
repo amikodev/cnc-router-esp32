@@ -79,9 +79,7 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
     Geometry::Point p2p = Geometry::getPoint(&lineOffset.p2, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
+        ActionMove::gotoPoint(&p1p, speed);
     } else{
 
         if(crossPoint != NULL){
@@ -92,12 +90,8 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
     }
 
     if(nParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
-        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
+        ActionMove::gotoPoint(&p2p, speed);
+        ActionMove::gotoPoint(compensationPath->targetPoint, speed);
     } else{
 
         // следующий участок пути - линейная интерполяция
@@ -124,16 +118,12 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                if(ActionMove::gotoPoint(crossPoint, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::gotoPoint(crossPoint, speed);
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::gotoPoint(&p2p, speed);
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -158,9 +148,7 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
-                            vTaskSuspend(GCode::gcodeTaskHandle);
-                        }
+                        ActionMove::circle(&circleJoin, speed);
                     }
                 }
             }
@@ -193,16 +181,12 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                 Geometry::Point point = Geometry::getPoint(&intersectPoint.point, defaultPoint);
                 crossPoint = new Geometry::Point();
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
-                if(ActionMove::gotoPoint(&point, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::gotoPoint(&point, speed);
             } else{     // окружность снаружи
 
                 // отрезок на текущем участке пути
                 // до конечной точки этого отрезка
-                if(ActionMove::gotoPoint(&p2p, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::gotoPoint(&p2p, speed);
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -222,9 +206,7 @@ void GCodeCRP::processLine(GCodeCRP::CompensationPath *compensationPath, float s
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
-                            vTaskSuspend(GCode::gcodeTaskHandle);
-                        }
+                        ActionMove::circle(&circleJoin, speed);
                     }
                 }
             }
@@ -263,9 +245,7 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
     Geometry::Point p1p = Geometry::getPoint(&circleOffset.p1, defaultPoint);
 
     if(cParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::gotoPoint(&p1p, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
+        ActionMove::gotoPoint(&p1p, speed);
 
     } else{
 
@@ -281,12 +261,8 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
     }
 
     if(nParams->compensationRadius.side == COMPENSATION_NONE){
-        if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
-        if(ActionMove::gotoPoint(compensationPath->targetPoint, speed, funcTargetFinish)){
-            vTaskSuspend(GCode::gcodeTaskHandle);
-        }
+        ActionMove::circle(&circleOffset, speed);
+        ActionMove::gotoPoint(compensationPath->targetPoint, speed);
 
     } else{
 
@@ -316,16 +292,12 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
                 circleOffset.p2 = Geometry::getPointXY(crossPoint);
                 Geometry::recalcCircleSegment(&circleOffset);
-                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::circle(&circleOffset, speed);
             } else{     // окружность снаружи
 
                 // окружность на текущем участке пути
                 // до конечной точки этой окружность
-                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::circle(&circleOffset, speed);
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -344,9 +316,7 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
-                            vTaskSuspend(GCode::gcodeTaskHandle);
-                        }
+                        ActionMove::circle(&circleJoin, speed);
                     }
                 }
             }
@@ -380,16 +350,12 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                 memcpy(crossPoint, &point, sizeof(Geometry::Point));
                 circleOffset.p2 = Geometry::getPointXY(crossPoint);
                 Geometry::recalcCircleSegment(&circleOffset);
-                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::circle(&circleOffset, speed);
             } else{     // окружность снаружи
 
                 // окружность на текущем участке пути
                 // до конечной точки этой окружность
-                if(ActionMove::circle(&circleOffset, speed, funcTargetFinish)){
-                    vTaskSuspend(GCode::gcodeTaskHandle);
-                }
+                ActionMove::circle(&circleOffset, speed);
 
                 if(!Geometry::pointsIsEqual(compensationPath->currentPoint, compensationPath->targetPoint)){
                     // соединяющий сегмент окружности
@@ -408,9 +374,7 @@ void GCodeCRP::processCircle(GCodeCRP::CompensationPath *compensationPath, float
                     Geometry::recalcCircleSegment(&circleJoin);
 
                     if(abs(circleJoin.angle2-circleJoin.angle1) >= 0.0174 && abs(circleJoin.angle2-circleJoin.angle1) <= 6.2657){     // > 1 градуса
-                        if(ActionMove::circle(&circleJoin, speed, funcTargetFinish)){
-                            vTaskSuspend(GCode::gcodeTaskHandle);
-                        }
+                        ActionMove::circle(&circleJoin, speed);
                     }
                 }
             }
