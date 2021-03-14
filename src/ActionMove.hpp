@@ -45,21 +45,12 @@ class ActionMove{
 
 public:
 
-    struct CircleTask{
-        Geometry::CircleSegment *circle;
-        float speed;
-        std::function<void ()> funcFinish;
-    };
-
 
 private:
 
     static uint8_t axeMoveCounter;
 
-    static TaskHandle_t circleTaskHandle;
-
 public:
-
 
     /**
      * Перемещение до целевой позиции
@@ -74,30 +65,24 @@ public:
      * Прямолинейное движение к точке
      * @param point целевая точка
      * @param speed скорость, мм/сек
-     * @param funcFinish функция вызываемая при окончании перемещения
+     * @param doPause включить ожидание до окончания перемещения
      */
-    static bool gotoPoint(Geometry::Point *point, float speed, std::function<void ()> *funcFinish);
+    static void gotoPoint(Geometry::Point *point, float speed, bool doPause=true);
 
     /**
      * Прямолинейное движение к точке
      * @param point целевая точка
      * @param speed скорость, мм/сек
-     * @param funcFinish функция вызываемая при окончании перемещения
+     * @param doPause включить ожидание до окончания перемещения
      */
-    static bool gotoPoint(Geometry::PointXY *point, float speed, std::function<void ()> *funcFinish);
+    static void gotoPoint(Geometry::PointXY *point, float speed, bool doPause=true);
 
     /**
      * Движение по кружности
      * @param circle окружность
      * @param speed скорость, мм/сек
-     * @param funcFinish функция вызываемая при окончании перемещения
      */
-    static bool circle(Geometry::CircleSegment *circle, float speed, std::function<void ()> funcFinish);
-
-    /**
-     * Задача движения по окружности
-     */
-    static void circleTask(void *arg);
+    static void circle(Geometry::CircleSegment *circle, float speed);
 
 };
 

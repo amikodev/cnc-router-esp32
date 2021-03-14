@@ -207,7 +207,7 @@ void GCode::gcodeTask(void *arg){
         return speed;
     };
 
-    for(;;){
+    std::function<void ()> calcFrame = [&](){
         uint8_t sDataInd = 0;
         frameLength = 0;
 
@@ -262,7 +262,10 @@ void GCode::gcodeTask(void *arg){
             }
             gcodeFramePtrOffset += 16;
         }
+    };
 
+    for(;;){
+        calcFrame();
 
         if(processFrame(frame, frameLength)){
             Geometry::Point nextPoint = calcTargetPoint(&progParams);
@@ -686,9 +689,21 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             progParams.coordType = COORD_RELATIVE;
             break;
         case 92:    // G92 - Смещение абсолютной системы координат
+        {
             progParams.coordType = COORD_OFFSET;
             memcpy(&progParams.targetCoord, &pointNull, sizeof(Geometry::Point));
             memcpy(&progParams.offsetCoord, &progParams.currentCoord, sizeof(Geometry::Point));
+
+            // выбранная система координат
+            // в данный момент используется только пользовательский ноль
+            Geometry::Point coordSystemPoint = _coordSystem != NULL ? _coordSystem->getUserZero() : __POINT_NULL;
+            progParams.offsetCoord.x -= coordSystemPoint.x;
+            progParams.offsetCoord.y -= coordSystemPoint.y;
+            progParams.offsetCoord.z -= coordSystemPoint.z;
+            progParams.offsetCoord.a -= coordSystemPoint.a;
+            progParams.offsetCoord.b -= coordSystemPoint.b;
+            progParams.offsetCoord.c -= coordSystemPoint.c;
+
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
@@ -716,6 +731,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             }
             processThisCommand = false;
             break;
+        }
         case 94:    // G94 - F (подача) — в формате мм/мин
         case 95:    // G95 - F (подача) — в формате мм/об
         case 99:    // G99 - После каждого цикла не отходить на «проходную точку»
@@ -804,22 +820,11 @@ void GCode::calcCircleSegment(Geometry::Point *currentPoint, Geometry::Point *ta
  * @param speed скорость, мм/сек
  */
 void GCode::processPath(Geometry::Point *targetPoint, ProgParams *targetParams, float speed){
-
-    std::function<void ()> funcTargetFinish = [&](){
-        // ESP_LOGI(TAG, "funcTargetFinish");
-        vTaskResume(gcodeTaskHandle);
-    };
-
     if(isLinearInterpolation(targetParams)){
-        if(ActionMove::gotoPoint(targetPoint, speed, &funcTargetFinish)){
-            vTaskSuspend(gcodeTaskHandle);
-        }
+        ActionMove::gotoPoint(targetPoint, speed);
     } else if(isCircleInterpolation(targetParams)){
-        if(ActionMove::circle(&targetParams->circleSegment, speed, funcTargetFinish)){
-            vTaskSuspend(gcodeTaskHandle);
-        }
+        ActionMove::circle(&targetParams->circleSegment, speed);
     }
-
 }
 
 /**

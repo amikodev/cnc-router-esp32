@@ -207,7 +207,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                 point.log(TAG, "Coord target");
                 float speed = GCode::getFastSpeed();        // mm/sec
                 if(speed == 0.0) speed = 50.0;
-                ActionMove::gotoPoint(&point, speed, NULL);
+                ActionMove::gotoPoint(&point, speed, false);
             }
         } 
         
