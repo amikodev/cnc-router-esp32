@@ -23,10 +23,6 @@ set(reqs
 )
 
 set(files
-    ../server/index.html
-    ../server/style.css
-    ../server/main.js
-    ../server/error.html
 )
 
 

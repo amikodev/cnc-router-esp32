@@ -556,10 +556,10 @@ void CncRouter::currentPointTask(void *arg){
             memcpy((data+16), ((void *) ( ((uint8_t *)&_currentPoint)+12 )), 4*3);    // отправка координат a, b, c
             ws_server_send_bin_all((char *)data, 32);
             vTaskDelay(pdMS_TO_TICKS(200));
+            memcpy(&_lastPoint, &_currentPoint, sizeof(Geometry::Point));
         } else{
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
-        memcpy(&_lastPoint, &_currentPoint, sizeof(Geometry::Point));
     }
 }
 

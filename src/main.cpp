@@ -128,7 +128,7 @@ void app_main() {
     // Wifi
     Wifi wifi;
     wifi.setHostname((char *) "CNC-Router");
-    wifi.setupAP();
+    wifi.setup();
     wifi.recieveBinary(CncRouter::parseWsData);
 
     // SD card

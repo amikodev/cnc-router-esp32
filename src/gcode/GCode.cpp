@@ -495,9 +495,6 @@ bool GCode::processFrame(FrameSubData *frame, uint8_t frameLength){
         }
     }
 
-    if(!processThisFrame)       // текущую команду Gxx, Mxx не обрабатываем
-        return false;
-
     return true;
 }
 
