@@ -24,6 +24,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "ActionMove.hpp"
 #include "Plasma.hpp"
 #include "CoordSystem.hpp"
+#include "InputInterrupt.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -112,6 +113,15 @@ public:
         CircleInc inc;                     // смещение центра окружности
     };
 
+    /**
+     * Подача до пропуска
+     */
+    struct Probe{
+        Geometry::Point point;              // конечная точка перемещения
+        float speed;                        // скорость перемещения, мм/сек
+        float backOffset;                   // величина отскока, мм
+    };
+
     struct ProgParams{
         uint32_t numLine;
         COORD_TYPE coordType;
@@ -126,6 +136,7 @@ public:
         Plasma::PLASMA_ARC plasmaArc;       // запуск плазмы
         float speed;                        // скорость перемещения, мм/сек
         float pause;                        // пауза задаваемая командой G04, в секундах
+        Probe probe;                        // подача до пропуска
     };
 
     static TaskHandle_t gcodeTaskHandle;
@@ -151,9 +162,14 @@ private:
 
     static float _fastSpeed;                // скорость быстрого перемещения, мм/сек
     static float _workSpeed;                // рабочая скорость перемещения, мм/сек
+    static float _fastSpeedModal;           // скорость быстрого перемещения, заданная в модальной команде, мм/сек
+    static float _workSpeedModal;           // рабочая скорость перемещения, заданная в модальной команде, мм/сек
 
     static NotifyNumLineFunc notifyNumLineFunc; 
     static NotifyFinishFunc notifyFinishFunc;
+
+    static bool actionIsProbe;
+    static float probeZOffset;
 
 public:
 
@@ -274,7 +290,7 @@ public:
     /**
      * Выполнение команд GCode не связанных с перемещением
      */
-    static void processProgParams(ProgParams *pParams);
+    static void processProgParams(ProgParams *pParams, Geometry::Point *currentCoord, Geometry::Point *targetCoord, Geometry::Point *nextCoord);
 
     /**
      * Пауза выполнения программы
@@ -286,6 +302,19 @@ public:
      * Завершение паузы выполнения программы.
      */
     static void actionPauseFinish(void *arg);
+
+    /**
+     * Подача до пропуска
+     * @param probe параметры подачи
+     * @param currentCoord текущие координаты
+     */
+    static void actionProbe(Probe *probe, Geometry::Point *currentCoord, Geometry::Point *targetCoord, Geometry::Point *nextCoord);
+
+    /**
+     * Установка значения "отскока" при поиске поверхности
+     * @param offset смещение, мм
+     */
+    static void setProbeZOffset(float offset);
 
     /**
      * Установка скорости быстрого перемещения
@@ -326,6 +355,13 @@ public:
      * @param system системы координат
      */
     static void setCoordSystem(CoordSystem *system);
+
+    /**
+     * Событие прерывания от входов группы 0
+     * @param type тип ввода
+     * @param level значение уровня
+     */
+    static void input0Event(InputInterrupt::INPUT0 type, int level);
 
 };
 

@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -27,6 +27,10 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "driver/gpio.h"
 
+#include "Axe.hpp"
+#include "StepDriver.hpp"
+#include "nvs-storage.hpp"
+
 
 /**
  * Плазморез CNC
@@ -42,6 +46,19 @@ public:
         PLASMA_ARC_STOP
     };
 
+    struct PlasmaVolt{
+        uint16_t count;
+    };
+
+    enum VOLTAGE_RANGE{
+        RANGE_UNKNOWN = 0,
+        RANGE_LOWER,
+        RANGE_NORMAL,
+        RANGE_HIGHER,
+        RANGE_ABNORMAL
+    };
+
+    typedef void (*VoltageRangeFunc)(VOLTAGE_RANGE range, double v, uint16_t count);
     
 private:
 
@@ -49,15 +66,31 @@ private:
 
     gpio_num_t _pinStart = GPIO_NUM_NC;
     gpio_num_t _pinArcStarted = GPIO_NUM_NC;
+    gpio_num_t _pinArcVoltage = GPIO_NUM_NC;
 
     int currentArcValue = 1;
 
     static xQueueHandle arcStartedEvtQueue;
+    static xQueueHandle arcVoltageEvtQueue;
 
     ArcStartedFunc arcStartedFunc = NULL;
+    VoltageRangeFunc voltageRangeFunc = NULL;
 
     bool isInverseStart = false;
     bool notifyIfStart = false;
+
+    static unsigned long startTime;
+    static uint16_t voltCount;
+
+    float workVoltage = 100.0;
+    float deviationVoltage = 2.0;
+    float abnormalVoltage = 150.0;
+
+    float pK = 0.0;
+    float pB = 0.0;
+
+    bool thcStateOn = false;        // включение THC
+    float thcSpeed = 1.0;           // скорость работы THC
 
 
 public:
@@ -71,8 +104,9 @@ public:
      * Инициализация выводов
      * @param pinStart вывод запуска плазмы
      * @param pinArcStarted вывод флага о рабочем режиме плазмы
+     * @param pinArcVoltage вывод прерывания для рассчёта напряжения 
      */
-    void initPins(gpio_num_t pinStart, gpio_num_t pinArcStarted);
+    void initPins(gpio_num_t pinStart, gpio_num_t pinArcStarted, gpio_num_t pinArcVoltage);
 
     /**
      * Установка инвертированности значения вывода запуска плазмы
@@ -91,12 +125,12 @@ public:
     gpio_num_t getPinArcStarted();
 
     /**
-     * 
+     * Функция прерывания по запуску дуги
      */
     static void IRAM_ATTR arcStartedIsrHandler(void *arg);
 
     /**
-     * 
+     * Задача по запуску дуги
      */
     static void arcStartedTask(void *arg);
 
@@ -104,7 +138,23 @@ public:
      * Прерывание экземпляра
      * @param level значение вывода флага о рабочем режиме плазмы
      */
-    void arcInterrupt(int level);
+    void arcStartedInterrupt(int level);
+
+    /**
+     * Функция прерывания по напряжению дуги
+     */
+    static void IRAM_ATTR arcVoltageIsrHandler(void *arg);
+
+    /**
+     * Задача по напряжению дуги
+     */
+    static void arcVoltageTask(void *arg);
+
+    /**
+     * Прерывание экземпляра
+     * @param count количество прерываний
+     */
+    void arcVoltageInterrupt(uint16_t count);
 
     /**
      * Запуск плазмы
@@ -128,6 +178,78 @@ public:
      * @param func функция обратного вызова
      */
     void setArcStartedCallback(ArcStartedFunc func);
+
+    /**
+     * Установка функции вызываемой с частотой 10 раз в секунду с информацией о том, в каком диапазоне лежит текущее напряжение дуги
+     * @param func функция обратного вызова
+     */
+    void setVoltageRangeCallback(VoltageRangeFunc func);
+
+    /**
+     * Установить рабочее напряжение
+     * @param wv напряжение, В
+     */
+    void setWorkVoltage(float wv);
+
+    /**
+     * Получить рабочее напряжение
+     */
+    float getWorkVoltage();
+
+    /**
+     * Установить допустимое расхождение со значением рабочего напряжения
+     * @param dv значение расхождения, В
+     */
+    void setDeviationVoltage(float dv);
+
+    /**
+     * Получить расхождение напряжения
+     */
+    float getDeviationVoltage();
+
+    /**
+     * Установка параметров для рассчёта напряжения
+     * по формуле v = k*intrCount + b;
+     * @param k параметр формулы k 
+     * @param b параметр формулы b
+     */
+    void setCalcParams(float k, float b);
+
+    /**
+     * Получить значение параметра k
+     */
+    float getCalcParamK();
+
+    /**
+     * Получить значение параметра b
+     */
+    float getCalcParamB();
+
+    /**
+     * Включить THC 
+     */
+    void thcOn();
+
+    /**
+     * Выключить THC 
+     */
+    void thcOff();
+
+    /**
+     * Получить статус включения THC
+     */
+    bool isThcOn();
+
+    /**
+     * Установить скорость работы THC
+     * @param speed скорость, мм/с
+     */
+    void setThcSpeed(float speed);
+
+    /**
+     * Получить скорость работы THC
+     */
+    float getThcSpeed();
 
 };
 

@@ -214,3 +214,19 @@ void ActionMove::circle(Geometry::CircleSegment *circle, float speed){
     }
 }
 
+/**
+ * Остановка перемещения
+ */
+void ActionMove::stop(){
+    Axe::AXES_COUNT axesCount = Axe::getAxesCount();
+    for(uint8_t i=1; i<(uint8_t) axesCount; i++){
+        Axe::AXE axe = (Axe::AXE) i;
+        StepDriver *sd = Axe::getStepDriver(axe);
+        if(!sd->getIsSynced()){
+            sd->stop();
+            sd->actionRunStop();
+        }
+    }
+}
+
+

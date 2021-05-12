@@ -84,6 +84,11 @@ public:
      */
     static void circle(Geometry::CircleSegment *circle, float speed);
 
+    /**
+     * Остановка перемещения
+     */
+    static void stop();
+
 };
 
 #endif      // __ACTIONMOVE_HPP__

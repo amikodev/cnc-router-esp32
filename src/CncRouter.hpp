@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -27,6 +27,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "gcode/GCodeCRP.hpp"
 #include "Plasma.hpp"
 #include "CoordSystem.hpp"
+#include "InputInterrupt.hpp"
 
 #include <stdio.h>
 #include <string.h>
@@ -48,6 +49,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 #include "websocket_server.h"
 #include "esp_r1_api.h"
+#include "nvs-storage.hpp"
 
 /**
  * ЧПУ станок
@@ -55,17 +57,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 class CncRouter{
 
 public:
-
-    enum INPUT0{
-        INPUT0_LIMITS = 1,
-        INPUT0_HOMES,
-        INPUT0_PROBE,
-        INPUT0_ESTOP
-    };
-
-    struct Input0Interrupt{
-        INPUT0 type;            // тип ввода
-    };
 
     struct WsData{
         uint64_t size;
@@ -84,6 +75,8 @@ private:
     gpio_num_t _pinHomes = GPIO_NUM_NC;
     gpio_num_t _pinProbe = GPIO_NUM_NC;
     gpio_num_t _pinEStop = GPIO_NUM_NC;
+
+    gpio_num_t _pinPlasmaV = GPIO_NUM_NC;
 
     StepDriver *probeAxe = NULL;
 
@@ -114,6 +107,9 @@ private:
     static const uint8_t WS_CMD_WRITE;
     static const uint8_t WS_CMD_RUN;
     static const uint8_t WS_CMD_STOP;
+    static const uint8_t WS_CMD_NOTIFY;
+    static const uint8_t WS_CMD_APP1;
+    static const uint8_t WS_CMD_APP2;
 
     static const uint8_t WS_AXE_DIRECTION_NONE;
     static const uint8_t WS_AXE_DIRECTION_FORWARD;
@@ -152,7 +148,7 @@ public:
      * @param pin вывод
      * @param inp тип входящих данных
      */
-    CncRouter* setInputPinInterrupt(gpio_num_t pin, INPUT0 inp);
+    CncRouter* setInputPinInterrupt(gpio_num_t pin, InputInterrupt::INPUT0 inp);
 
     /**
      * Установка вывода предела
@@ -249,6 +245,11 @@ public:
      * Функция обратного вызова при изменении значения вывода флага рабочего режима дуги плазмы
      */
     static void plasmaArcStartedCallback(bool started, bool notifyIfStart);
+
+    /**
+     * Функция обратного вызова для уведомления о том, в каком диапазоне лежит текущее напряжение дуги плазмы
+     */
+    static void plasmaVoltageRangeCallback(Plasma::VOLTAGE_RANGE range, double v, uint16_t count);
 
     /**
      * Отправка номера строки gcode клиенту

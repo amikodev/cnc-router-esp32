@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -24,6 +24,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
  * Конструктор
  */
 StepDriver::StepDriver(){
+
+    MotorActionRun *lmp = &lastMotorActionRun;
+    lmp->stepDriver = NULL;
+    lmp->cPulse = 0;
+    lmp->dir = false;
+    lmp->speed = 0.0;
+    lmp->stopLimit = true;
+    lmp->changeInternalPosition = false;
 
 }
 
@@ -137,6 +145,9 @@ StepDriver* StepDriver::setRevMM(double mm){
 StepDriver::MotorTarget* StepDriver::calcTarget(float targetMM, float speed){
     getPositionMM();
 
+    if(speed > _maxSpeed)
+        speed = _maxSpeed;
+
     // printf("axe: %c, targetMM: %f, _positionMM: %f, _positionMax: %llu, _position: %llu \n", _letter, targetMM, _positionMM, _positionMax, _position);
     if(_positionMM == targetMM)
         return NULL;
@@ -189,7 +200,7 @@ void StepDriver::setDirection(bool dir){
 void StepDriver::timerRunCallback(void* arg){
     MotorTarget *mt = (MotorTarget *)arg;
 
-    if(mt->cPulse < mt->dxPulses){
+    if(mt->cPulse < mt->dxPulses && !mt->stepDriver->getNeedStop()){
 
         bool imp = (mt->cPulse % 2) == 0;
 
@@ -222,6 +233,7 @@ void StepDriver::timerRunCallback(void* arg){
  */
 void StepDriver::setTimerRun(esp_timer_handle_t timer){
     _timerRun = timer;
+    needStop = false;
 }
 
 /**
@@ -245,28 +257,55 @@ void StepDriver::stopTimerRun(){
 }
 
 /**
+ * Остановка перемещения
+ */
+void StepDriver::stop(){
+    if(_timerRun != NULL){
+        needStop = true;
+    }
+}
+
+/**
  * Запуск простого перемещения без целевой точки
  * @param mode тип работы
  * @param direction направление (вперёд/назад)
  * @param speed скорость, мм/сек
  * @param stopLimit флаг прекращения движения при достижении предела
  */
-void StepDriver::actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit){
-    runMode = MODE_PROBE;
+void StepDriver::actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit, bool changeInternalPosition){
+    // runMode = MODE_PROBE;
 
     MotorActionRun *mp = &motorActionRun;
+    MotorActionRun *lmp = &lastMotorActionRun;
+
+    if(speed > _maxSpeed)
+        speed = _maxSpeed;
+
+    if(_timerActionRun != NULL){
+        // обработка в случае повторного вызова с теми же значениями скорости и направления
+        if(direction == mp->dir && speed == mp->speed){
+            return;
+        } else{
+            // this->actionRunStop();
+            ESP_LOGI(TAG, "actionRun axe: %c; change direction from %d to %d", _letter, mp->dir, direction);
+            mp->dir = direction;
+            this->setDirection(mp->dir);
+            return;
+        }
+    }
 
     mp->stepDriver = this;
     mp->cPulse = 0;
     mp->dir = direction;
     mp->speed = speed;
     mp->stopLimit = stopLimit;
+    mp->changeInternalPosition = changeInternalPosition;
 
     esp_timer_create_args_t timerRunArgs = {
         .callback = &StepDriver::timerActionRunCallback,
         .arg = (void *)mp,
         .dispatch_method = ESP_TIMER_TASK,
-        .name = "probe_"+this->getLetter()
+        .name = "actionRun_"+this->getLetter()
     };
 
     esp_timer_handle_t timerActionRun;
@@ -278,7 +317,10 @@ void StepDriver::actionRun(RUN_MODE mode, bool direction, float speed, bool stop
     if(mksStep < 60) mksStep = 60;
     this->setDirection(mp->dir);
 
+    ESP_LOGI(TAG, "actionRun axe: %c, dir: %d, speed: %f, cip: %d", _letter, direction, speed, changeInternalPosition);
     ESP_ERROR_CHECK(esp_timer_start_periodic(timerActionRun, mksStep));
+
+    memcpy(lmp, mp, sizeof(MotorActionRun));
 }
 
 /**
@@ -288,6 +330,7 @@ void StepDriver::actionRunStop(){
     runMode = MODE_NONE;
 
     if(_timerActionRun != NULL){
+        ESP_LOGI(TAG, "actionRunStop axe: %c", _letter);
         ESP_ERROR_CHECK(esp_timer_stop(_timerActionRun));
         ESP_ERROR_CHECK(esp_timer_delete(_timerActionRun));
         _timerActionRun = NULL;
@@ -338,17 +381,19 @@ void StepDriver::timerActionRunCallback(void* arg){
     }
 
     mp->cPulse++;
-    if((mp->cPulse % 2) == 0){
-        mp->stepDriver->positionInc(!mp->dir ? 1 : -1);
+    if(mp->changeInternalPosition){
+        if((mp->cPulse % 2) == 0){
+            mp->stepDriver->positionInc(!mp->dir ? 1 : -1);
+        }
     }
 }
 
-/**
- * Получить установку режима проверки начала и окончания координат
- */
-bool StepDriver::isModeProbe(){
-    return runMode == MODE_PROBE;
-}
+// /**
+//  * Получить установку режима проверки начала и окончания координат
+//  */
+// bool StepDriver::isModeProbe(){
+//     return runMode == MODE_PROBE;
+// }
 
 /**
  * Получение режима перемещения
@@ -479,4 +524,27 @@ void StepDriver::setIsSynced(bool synced){
 bool StepDriver::getIsSynced(){
     return isSynced;
 }
+
+/**
+ * Получение флага необходимости остановки перемещения
+ */
+bool StepDriver::getNeedStop(){
+    return needStop;
+}
+
+/**
+ * Установить максимальную скорость перемещения
+ * @param speed скорость перемещения, мм/с
+ */
+void StepDriver::setMaxSpeed(float speed){
+    _maxSpeed = speed;
+}
+
+/**
+ * Получить максимальную скорость перемещения
+ */
+float StepDriver::getMaxSpeed(){
+    return _maxSpeed;
+}
+
 

@@ -1,15 +1,16 @@
 
 set(app_sources
-	"main.cpp"
+    "main.cpp"
     "Axe.cpp"
     "Geometry.cpp"
     "ActionMove.cpp"
-	"StepDriver.cpp"
-	"CncRouter.cpp"
+    "StepDriver.cpp"
+    "CncRouter.cpp"
     "gcode/GCode.cpp"
     "gcode/GCodeCR.cpp"
     "Plasma.cpp"
     "CoordSystem.cpp"
+    "InputInterrupt.cpp"
 
 )
 

@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -30,13 +30,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #include "esp_event.h"
 #include <unistd.h>
 #include "esp_timer.h"
-#include "nvs_flash.h"
 
 
 #include "wifi.hpp"
 #include "httprequest.hpp"
 #include "sdcard-storage.hpp"
 #include "spiffs-storage.hpp"
+#include "nvs-storage.hpp"
 #include "shiftload.hpp"
 #include "esp_r1_api.h"
 
@@ -54,6 +54,9 @@ extern "C" {
 void app_main() {
     ESP_LOGI(TAG, "Project CNC Router");
 
+    // nvs flash
+    NvsStorage::init((char *) "cnc");
+
     Axe::init(Axe::AXES_4);
 
     // CncRouter    
@@ -67,6 +70,7 @@ void app_main() {
         ->setRevMM(100.0*1.06049)
         ->setLimMin(0.0)
         ->setLimMax(1550.0)
+        ->setMaxSpeed(100.0)
     ;
     
     // ось Y
@@ -78,16 +82,18 @@ void app_main() {
         ->setRevMM(100.0*1.04433)
         ->setLimMin(0.0)
         ->setLimMax(2600.0)
+        ->setMaxSpeed(100.0)
     ;
     
     // ось Z
     Axe::getStepDriver(Axe::AXE_Z)
         ->initPins(GPIO_NUM_18, GPIO_NUM_19)
-        ->setPulses(800)
+        ->setPulses(200)
         ->setLetter('Z')
         ->setRevMM(1.75)
         ->setLimMin(-150.0)
         ->setLimMax(0.0)
+        ->setMaxSpeed(6.0)
     ;
     
     // ось A
@@ -107,16 +113,26 @@ void app_main() {
         ->setPinEStop(GPIO_NUM_27)
     ;
 
+
     // PlasmaCut
     Plasma *plasma = new Plasma();
-    plasma->initPins(GPIO_NUM_25, GPIO_NUM_33);
+    plasma->initPins(GPIO_NUM_25, GPIO_NUM_33, GPIO_NUM_23);
     plasma->setInverseStart(true);
+    plasma->setThcSpeed(2.0);
+    // plasma->thcOn();
+    plasma->thcOff();
+    // plasma->setWorkVoltage(110.0);
+    // plasma->setDeviationVoltage(2.0);
+    // plasma->setCalcParams(0.004429678848, 28.12846069);
+    // plasma->setCalcParams(0.004500818331, 41.44844517);
     plasma->stop();
     router->setPlasma(plasma);
     GCode::setPlasma(plasma);
 
     GCode::setFastSpeed(70.0);
     GCode::setWorkSpeed(50.0);
+
+    GCode::setProbeZOffset(4.0);
 
     // системы координат
     CoordSystem *coordSystem = new CoordSystem();
@@ -151,15 +167,6 @@ void app_main() {
     // запустить задачу уведомления об изменении текущих координат
     router->enableCurrentPointNotify();
 
-
-    // nvs flash
-    esp_err_t ret;
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK( ret );
 
     // Bluetooth joystick MagicSee R1
     ESP_ERROR_CHECK(esp_r1_init());

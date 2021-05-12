@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -47,6 +47,9 @@ const uint8_t CncRouter::WS_CMD_READ = 0x01;
 const uint8_t CncRouter::WS_CMD_WRITE = 0x02;
 const uint8_t CncRouter::WS_CMD_RUN = 0x03;
 const uint8_t CncRouter::WS_CMD_STOP = 0x04;
+const uint8_t CncRouter::WS_CMD_NOTIFY = 0x05;
+const uint8_t CncRouter::WS_CMD_APP1 = 0x06;
+const uint8_t CncRouter::WS_CMD_APP2 = 0x07;
 
 const uint8_t CncRouter::WS_AXE_DIRECTION_NONE = 0x00;
 const uint8_t CncRouter::WS_AXE_DIRECTION_FORWARD = 0x01;
@@ -69,8 +72,13 @@ CncRouter::CncRouter(){
 
     instance = this;
 
+    for(uint8_t i=0; i<InputInterrupt::INPUT0::INPUT0_COUNT; i++){
+        InputInterrupt::pins[i] = GPIO_NUM_NC;
+        InputInterrupt::levels[i] = -1;
+    }
+
     // создание очереди и запуск задачи для обработки прерываний со входов
-    CncRouter::input0EvtQueue = xQueueCreate(10, sizeof(Input0Interrupt));
+    CncRouter::input0EvtQueue = xQueueCreate(10, sizeof(InputInterrupt::Input0Interrupt));
     xTaskCreate(CncRouter::input0Task, "input0Task", 2048, NULL, 10, NULL);
 
     // очередь и задача по отправке данных клиенту
@@ -181,6 +189,9 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
                     dataResp[2] = 0x01;
                     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
 
+                    // останавливаем перемещение
+                    ActionMove::stop();
+
                     // останавливаем плазму
                     instance->getPlasma()->stop();
                     memset(&dataResp, 0x00, 16);
@@ -214,30 +225,80 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
         
         // Plasma Arc
         else if(*(data) == WS_OBJ_NAME_PLASMA_ARC){
+            Plasma *plasma = instance->getPlasma();
             uint8_t dataResp[16] = {0};
-            // Plasma *plasma = instance->getPlasma();
             dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
             if(*(data+1) == WS_PLASMA_ARC_START){
                 dataResp[1] = WS_PLASMA_ARC_START;
                 if(*(data+2) == WS_CMD_RUN){
-                    instance->getPlasma()->start();
+                    plasma->start();
                     dataResp[2] = WS_CMD_RUN;
                     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
                 } else if(*(data+2) == WS_CMD_STOP){
-                    instance->getPlasma()->stop();
+                    plasma->stop();
                     dataResp[2] = WS_CMD_STOP;
                     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
                 }
             } else if(*(data+1) == WS_PLASMA_ARC_STARTED){
                 dataResp[1] = WS_PLASMA_ARC_STARTED;
                 if(*(data+2) == WS_CMD_READ){
-                    bool started = instance->getPlasma()->getArcStarted();
+                    bool started = plasma->getArcStarted();
                     dataResp[2] = (uint8_t) started;
                     xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
                 }                
             } else if(*(data+1) == WS_PLASMA_ARC_VOLTAGE){
+                
                 if(*(data+2) == WS_CMD_READ){
+                    uint8_t dataResp[32] = {0};
+                    dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
+                    dataResp[1] = WS_PLASMA_ARC_VOLTAGE;
+                    dataResp[2] = WS_CMD_READ;
 
+                    float wv = plasma->getWorkVoltage();
+                    float dv = plasma->getDeviationVoltage();
+                    float pK = plasma->getCalcParamK();
+                    float pB = plasma->getCalcParamB();
+
+                    memcpy((dataResp+3), &wv, 4);
+                    memcpy((dataResp+7), &dv, 4);
+                    memcpy((dataResp+11), &pK, 4);
+                    dataResp[0xF] = 0x01;
+                    memcpy((dataResp+16), &pB, 4);
+
+                    ws_server_send_bin_all_from_callback((char *)&dataResp, 32);
+                } else if(*(data+2) == WS_CMD_WRITE){
+                    float wv = 0.0, dv = 0.0;
+                    memcpy(&wv, data+3, 4);
+                    memcpy(&dv, data+7, 4);
+                    plasma->setWorkVoltage(wv);
+                    plasma->setDeviationVoltage(dv);
+
+                    NvsStorage::open();
+                    NvsStorage::setValue((char *) "plasmaWV", wv);
+                    NvsStorage::setValue((char *) "plasmaDV", dv);
+                    NvsStorage::commit();
+                    NvsStorage::close();
+
+                    dataResp[1] = WS_PLASMA_ARC_VOLTAGE;
+                    dataResp[2] = WS_CMD_WRITE;
+                    dataResp[3] = 0x01;
+                    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+                } else if(*(data+2) == WS_CMD_APP1){
+                    float pK = 0.0, pB = 0.0;
+                    memcpy(&pK, data+3, 4);
+                    memcpy(&pB, data+7, 4);
+                    plasma->setCalcParams(pK, pB);
+
+                    NvsStorage::open();
+                    NvsStorage::setValue((char *) "plasmaPK", pK);
+                    NvsStorage::setValue((char *) "plasmaPB", pB);
+                    NvsStorage::commit();
+                    NvsStorage::close();
+
+                    dataResp[1] = WS_PLASMA_ARC_VOLTAGE;
+                    dataResp[2] = WS_CMD_APP1;
+                    dataResp[3] = 0x01;
+                    xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
                 }                
             }
         }
@@ -349,7 +410,7 @@ void CncRouter::parseWsData(uint8_t *data, uint32_t length){
  * @param pin вывод
  * @param inp тип входящих данных
  */
-CncRouter* CncRouter::setInputPinInterrupt(gpio_num_t pin, INPUT0 inp){
+CncRouter* CncRouter::setInputPinInterrupt(gpio_num_t pin, InputInterrupt::INPUT0 inp){
     if(pin != GPIO_NUM_NC){
 
         uint64_t bitMask = 0;
@@ -366,10 +427,14 @@ CncRouter* CncRouter::setInputPinInterrupt(gpio_num_t pin, INPUT0 inp){
         int intrFlag = 0;
         gpio_install_isr_service(intrFlag);
 
-        Input0Interrupt *ii = new Input0Interrupt();
+        InputInterrupt::Input0Interrupt *ii = new InputInterrupt::Input0Interrupt();
         ii->type = inp;
         gpio_isr_handler_add(pin, CncRouter::input0IsrHandler, (void *)ii);
+
+        InputInterrupt::levels[ii->type] = gpio_get_level(pin);
     }
+
+    InputInterrupt::pins[inp] = pin;
 
     return this;
 }
@@ -380,7 +445,7 @@ CncRouter* CncRouter::setInputPinInterrupt(gpio_num_t pin, INPUT0 inp){
  */
 CncRouter* CncRouter::setPinLimits(gpio_num_t pin){
     _pinLimits = pin;
-    setInputPinInterrupt(pin, INPUT0_LIMITS);
+    setInputPinInterrupt(pin, InputInterrupt::INPUT0_LIMITS);
     return this;
 }
 
@@ -397,7 +462,7 @@ gpio_num_t CncRouter::getPinLimits(){
  */
 CncRouter* CncRouter::setPinHomes(gpio_num_t pin){
     _pinHomes = pin;
-    setInputPinInterrupt(pin, INPUT0_HOMES);
+    setInputPinInterrupt(pin, InputInterrupt::INPUT0_HOMES);
     return this;
 }
 
@@ -414,7 +479,7 @@ gpio_num_t CncRouter::getPinHomes(){
  */
 CncRouter* CncRouter::setPinProbe(gpio_num_t pin){
     _pinProbe = pin;
-    setInputPinInterrupt(pin, INPUT0_PROBE);
+    setInputPinInterrupt(pin, InputInterrupt::INPUT0_PROBE);
     return this;
 }
 
@@ -431,7 +496,7 @@ gpio_num_t CncRouter::getPinProbe(){
  */
 CncRouter* CncRouter::setPinEStop(gpio_num_t pin){
     _pinEStop = pin;
-    setInputPinInterrupt(pin, INPUT0_ESTOP);
+    setInputPinInterrupt(pin, InputInterrupt::INPUT0_ESTOP);
     return this;
 }
 
@@ -446,7 +511,7 @@ gpio_num_t CncRouter::getPinEStop(){
  * 
  */
 void IRAM_ATTR CncRouter::input0IsrHandler(void *arg){
-    Input0Interrupt *ii = (Input0Interrupt *)arg;
+    InputInterrupt::Input0Interrupt *ii = (InputInterrupt::Input0Interrupt *)arg;
     xQueueSendFromISR(input0EvtQueue, ii, NULL);
 }
 
@@ -454,37 +519,44 @@ void IRAM_ATTR CncRouter::input0IsrHandler(void *arg){
  * 
  */
 void CncRouter::input0Task(void *arg){
-    Input0Interrupt *ii = new Input0Interrupt();
+    InputInterrupt::Input0Interrupt *ii = new InputInterrupt::Input0Interrupt();
     int level = -1;
     for(;;){
         if(xQueueReceive(input0EvtQueue, ii, portMAX_DELAY)){
-            switch(ii->type){
-                case INPUT0_LIMITS:
-                    level = gpio_get_level(instance->getPinLimits());
-                    ESP_LOGI(TAG, "Limits interrupt: %d", level);
+            level = -1;
+
+            InputInterrupt::INPUT0 type = ii->type;
+            gpio_num_t pin = InputInterrupt::pins[type];
+            char *caption;
+            bool mayProcess = true;
+
+            switch(type){
+                case InputInterrupt::INPUT0_LIMITS:
+                    caption = (char *) "Limits";
                     break;
-                case INPUT0_HOMES:
-                    level = gpio_get_level(instance->getPinHomes());
-                    ESP_LOGI(TAG, "Homes interrupt: %d", level);
+                case InputInterrupt::INPUT0_HOMES:
+                    caption = (char *) "Homes";
                     break;
-                case INPUT0_PROBE:
-                    level = gpio_get_level(instance->getPinProbe());
-                    ESP_LOGI(TAG, "Probe interrupt: %d", level);
+                case InputInterrupt::INPUT0_PROBE:
+                    caption = (char *) "Probe";
                     break;
-                case INPUT0_ESTOP:
-                    level = gpio_get_level(instance->getPinEStop());
-                    ESP_LOGI(TAG, "EStop interrupt: %d", level);
+                case InputInterrupt::INPUT0_ESTOP:
+                    caption = (char *) "EStop";
                     break;
                 default:
                     ESP_LOGI(TAG, "Unknown interrupt");
+                    mayProcess = false;
                     break;
             }
-            // int level = gpio_get_level(pinLimit);
-            // StepDriver *sd = li->axe;
-            // printf("Limit intr: %d\n", level);
-            // if(sd->isModeProbe()){
-            //     sd->actionProbeStop();
-            // }
+
+            if(mayProcess){
+                level = gpio_get_level(pin);
+                if(InputInterrupt::levels[type] != level){
+                    InputInterrupt::levels[type] = level;
+                    ESP_LOGI(TAG, "%s interrupt: %d", caption, level);
+                    GCode::input0Event(type, level);
+                }
+            }
         }
     }
 }
@@ -531,7 +603,7 @@ void CncRouter::currentPointTask(void *arg){
     uint8_t data[32] = {0};
 
     data[0] = WS_OBJ_NAME_COORDS;
-    data[1] = WS_CMD_READ;
+    data[1] = WS_CMD_NOTIFY;
 
     Geometry::Point _lastPoint;
     Geometry::Point _currentPoint;
@@ -577,6 +649,7 @@ void CncRouter::enableCurrentPointNotify(){
 void CncRouter::setPlasma(Plasma *plasma){
     _plasma = plasma;
     _plasma->setArcStartedCallback(CncRouter::plasmaArcStartedCallback);
+    _plasma->setVoltageRangeCallback(CncRouter::plasmaVoltageRangeCallback);
 }
 
 /**
@@ -601,6 +674,52 @@ void CncRouter::plasmaArcStartedCallback(bool started, bool notifyIfStart){
         // возобновление основной задачи gcode
         vTaskResume(GCode::gcodeTaskHandle);
     }
+}
+
+/**
+ * Функция обратного вызова для уведомления о том, в каком диапазоне лежит текущее напряжение дуги плазмы
+ */
+void CncRouter::plasmaVoltageRangeCallback(Plasma::VOLTAGE_RANGE range, double v, uint16_t count){
+    ESP_LOGI(TAG, "plasmaVoltageRangeCallback: %d; v: %f; count: %d", range, v, count);
+
+    uint8_t dataResp[16] = {0};
+    dataResp[0] = WS_OBJ_NAME_PLASMA_ARC;
+    dataResp[1] = WS_PLASMA_ARC_VOLTAGE;
+    dataResp[2] = WS_CMD_NOTIFY;
+    float voltage = (float) v;
+    memcpy((dataResp+3), &voltage, 4);
+    dataResp[7] = range;
+    dataResp[8] = (count) & 0xFF;
+    dataResp[9] = (count >> 8) & 0xFF;
+    // xQueueGenericSend(wsSendEvtQueue, (void *) &dataResp, (TickType_t) 0, queueSEND_TO_BACK);
+    ws_server_send_bin_all_from_callback((char *) &dataResp, 16);
+
+    Plasma *plasma = instance->getPlasma();
+
+    if(!GCode::isRunned() || !plasma->isThcOn() || !plasma->getArcStarted()){
+    // if(!GCode::isRunned()){
+        return;
+    }
+
+    float speed = plasma->getThcSpeed();
+    bool runAfterLimit = true;
+
+    StepDriver *sd = Axe::getStepDriver(Axe::AXE_Z);
+
+    if(range == Plasma::VOLTAGE_RANGE::RANGE_LOWER){
+        ESP_LOGI(TAG, "THC Z up");
+        sd->actionRun(StepDriver::MODE_MOVE, false, speed, !runAfterLimit, false);
+    } else if(range == Plasma::VOLTAGE_RANGE::RANGE_HIGHER){
+        ESP_LOGI(TAG, "THC Z down");
+        sd->actionRun(StepDriver::MODE_MOVE, true, speed, !runAfterLimit, false);
+    } else if(range == Plasma::VOLTAGE_RANGE::RANGE_NORMAL || range == Plasma::VOLTAGE_RANGE::RANGE_ABNORMAL){
+        if(range == Plasma::VOLTAGE_RANGE::RANGE_ABNORMAL){
+            ESP_LOGI(TAG, "THC voltage is abnormal");
+        }
+        ESP_LOGI(TAG, "THC Z stop");
+        sd->actionRunStop();
+    }
+
 }
 
 /**

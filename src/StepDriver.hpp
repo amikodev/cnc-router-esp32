@@ -1,6 +1,6 @@
 /*
 amikodev/cnc-router-esp32 - CNC Router on esp-idf
-Copyright © 2020 Prihodko Dmitriy - asketcnc@yandex.ru
+Copyright © 2020-2021 Prihodko Dmitriy - asketcnc@yandex.ru
 */
 
 /*
@@ -62,6 +62,7 @@ public:
         bool dir;                       // направление
         float speed;                    // скорость, мм/сек
         float stopLimit = true;         // флаг прекращения движения при достижении предела
+        bool changeInternalPosition = true;     // фиксировать изменение позиции
     };
 
     enum RUN_MODE{
@@ -69,7 +70,7 @@ public:
         MODE_MOVE,                      // простое перемещение
         MODE_LIMIT,                     // поиск предела
         MODE_HOME,                      // поиск Home
-        MODE_PROBE                      // поиск датчика Probe
+        // MODE_PROBE                      // поиск датчика Probe
     };
 
 
@@ -91,6 +92,8 @@ private:
     float _limMinMM = 0.0;              // минимальный предел, в мм
     float _limMaxMM = 0.0;              // максимальный предел, в мм
 
+    float _maxSpeed = 100.0;            // максимальная скорость перемещения, мм/с
+
     esp_timer_handle_t _timerRun = NULL;
 
     RUN_MODE runMode = MODE_NONE;       // режим работы
@@ -98,11 +101,13 @@ private:
     esp_timer_handle_t _timerActionRun = NULL;
 
     MotorTarget motorTarget;
-    MotorActionRun motorActionRun;
+    MotorActionRun motorActionRun, lastMotorActionRun;
 
     StepDriver *syncChilds[4] = {NULL, NULL, NULL, NULL};       // синхронизируемые оси
     uint8_t syncChildsCount = 0;                                // количество синхронизируемых осей
     bool isSynced = false;                                      // синхронизируема с другой осью
+
+    bool needStop = false;          // необходимость остановки
 
     double k1 = 0.0;
     double k2 = 0.0;
@@ -214,13 +219,18 @@ public:
     void stopTimerRun();
 
     /**
+     * Остановка перемещения
+     */
+    void stop();
+
+    /**
      * Запуск простого перемещения без целевой точки
      * @param mode тип работы
      * @param direction направление (вперёд/назад)
      * @param speed скорость, мм/сек
      * @param stopLimit флаг прекращения движения при достижении предела
      */
-    void actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit=true);
+    void actionRun(RUN_MODE mode, bool direction, float speed, bool stopLimit=true, bool changeInternalPosition=true);
 
     /**
      * Окончание перемещения
@@ -233,10 +243,10 @@ public:
      */
     static void timerActionRunCallback(void* arg);
 
-    /**
-     * Получить установку режима проверки начала и окончания координат
-     */
-    bool isModeProbe();
+    // /**
+    //  * Получить установку режима проверки начала и окончания координат
+    //  */
+    // bool isModeProbe();
 
     /**
      * Получение режима перемещения
@@ -312,6 +322,22 @@ public:
      * Получение флага того, что данная ось синхронизирована с другой и является дочерней
      */
     bool getIsSynced();
+
+    /**
+     * Получение флага необходимости остановки перемещения
+     */
+    bool getNeedStop();
+
+    /**
+     * Установить максимальную скорость перемещения
+     * @param speed скорость перемещения, мм/с
+     */
+    void setMaxSpeed(float speed);
+
+    /**
+     * Получить максимальную скорость перемещения
+     */
+    float getMaxSpeed();
 
 };
 

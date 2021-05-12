@@ -45,6 +45,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
     .plasmaArc = Plasma::PLASMA_ARC_NONE, \
     .speed = 0, \
     .pause = 0, \
+    .probe = { .point = __POINT_NULL, .speed = 0.0, .backOffset = 5.0 }, \
     ##__VA_ARGS__ \
 })
 
@@ -68,11 +69,16 @@ Geometry::Point GCode::pointNull = __POINT_NULL;
 Plasma* GCode::_plasma = NULL;              // плазма
 CoordSystem* GCode::_coordSystem = NULL;    // системы координат
 
-float GCode::_fastSpeed = 0.0;                // скорость быстрого перемещения, мм/сек
-float GCode::_workSpeed = 0.0;                // рабочая скорость перемещения, мм/сек
+float GCode::_fastSpeed = 20.0;                // скорость быстрого перемещения, мм/сек
+float GCode::_workSpeed = 20.0;                // рабочая скорость перемещения, мм/сек
+float GCode::_fastSpeedModal = 20.0;
+float GCode::_workSpeedModal = 20.0;
 
 GCode::NotifyNumLineFunc GCode::notifyNumLineFunc = NULL;
 GCode::NotifyFinishFunc GCode::notifyFinishFunc = NULL;
+
+bool GCode::actionIsProbe = false;
+float GCode::probeZOffset = 5.0;
 
 /**
  * Инициализация программы GCode
@@ -132,6 +138,7 @@ void GCode::cleanNotModalParams(){
 
     progParams.plasmaArc = Plasma::PLASMA_ARC_NONE;
     progParams.pause = 0.0;
+    progParams.probe.speed = 0.0;
 
 }
 
@@ -281,10 +288,10 @@ void GCode::gcodeTask(void *arg){
                 } else{
                     // выполняется перемещение на основе информации о текущей, целевой и следующей за целевой точками
                     ESP_LOGI(TAG, "numLine: %d", targetParams.numLine);
-                    // ESP_LOGI(TAG, "current: [%.2f ; %.2f], target: [%.2f ; %.2f], next: [%.2f ; %.2f]",
-                    //     currentPoint.x, currentPoint.y, 
-                    //     targetPoint.x, targetPoint.y, 
-                    //     nextPoint.x, nextPoint.y
+                    // ESP_LOGI(TAG, "current: [%.2f ; %.2f ; %.2f], target: [%.2f ; %.2f ; %.2f], next: [%.2f ; %.2f ; %.2f]",
+                    //     currentPoint.x, currentPoint.y, currentPoint.z, 
+                    //     targetPoint.x, targetPoint.y, targetPoint.z, 
+                    //     nextPoint.x, nextPoint.y, nextPoint.z
                     // );
                     // ESP_LOGI(TAG, "CR current: side: %d; value: %f, CR target: side: %d; value: %f, CR next: side: %d; value: %f", 
                     //     currentParams.compensationRadius.side, currentParams.compensationRadius.value,
@@ -314,7 +321,7 @@ void GCode::gcodeTask(void *arg){
                         if(pParams.numLine != currentParams.numLine){
                             ESP_LOGI(TAG, "numLine: %d [p]", pParams.numLine);
                             sendNumLine(pParams.numLine);
-                            processProgParams(&pParams);
+                            processProgParams(&pParams, &currentPoint, &targetPoint, &nextPoint);
                         }
                     }
 
@@ -357,7 +364,7 @@ void GCode::gcodeTask(void *arg){
                     if(pParams.numLine != currentParams.numLine){
                         ESP_LOGI(TAG, "numLine: %d [p]", pParams.numLine);
                         sendNumLine(pParams.numLine);
-                        processProgParams(&pParams);
+                        processProgParams(&pParams, &currentPoint, &targetPoint, NULL);
                     }
                 }
 
@@ -506,11 +513,12 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
     switch(value){
         case 0:     // G00 - Ускоренное перемещение инструмента (холостой ход)
             progParams.runType = RUN_FAST;
+            progParams.speed = _fastSpeedModal;
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
                     case GCODE_LETTER_F:    // задание скорости перемещения, mm/min
-                        progParams.speed = el->value/60;
+                        _fastSpeedModal = progParams.speed = el->value/60;
                         break;
                     default:
                         break;
@@ -519,11 +527,12 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 1:     // G01 - Линейная интерполяция, скорость перемещения задаётся здесь же или ранее модальной командой F
             progParams.runType = RUN_WORK_LINEAR;
+            progParams.speed = _workSpeedModal;
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
                 switch(el->letter){
                     case GCODE_LETTER_F:    // задание скорости перемещения, mm/min
-                        progParams.speed = el->value/60;
+                        _workSpeedModal = progParams.speed = el->value/60;
                         break;
                     default:
                         break;
@@ -532,6 +541,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 2:     // G02 - Круговая интерполяция по часовой стрелке
             progParams.runType = RUN_WORK_CW;
+            progParams.speed = _workSpeedModal;
             progParams.circle.inc = { .i = 0.0, .j = 0.0, .k = 0.0 };
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
@@ -553,7 +563,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
                         progParams.circle.inc.k = el->value;
                         break;
                     case GCODE_LETTER_F:    // задание скорости перемещения, mm/min
-                        progParams.speed = el->value/60;
+                        _workSpeedModal = progParams.speed = el->value/60;
                         break;
                     default:
                         break;
@@ -562,6 +572,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             break;
         case 3:     // G03 - Круговая интерполяция против часовой стрелки
             progParams.runType = RUN_WORK_CCW;
+            progParams.speed = _workSpeedModal;
             progParams.circle.inc = { .i = 0.0, .j = 0.0, .k = 0.0 };
             for(uint8_t i=0; i<frameLength; i++){
                 FrameSubData *el = frame+i;
@@ -583,7 +594,7 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
                         progParams.circle.inc.k = el->value;
                         break;
                     case GCODE_LETTER_F:    // задание скорости перемещения, mm/min
-                        progParams.speed = el->value/60;
+                        _workSpeedModal = progParams.speed = el->value/60;
                         break;
                     default:
                         break;
@@ -620,8 +631,48 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
             progParams.unit = UNIT_METRIC;
             break;
         case 28:    // G28 - Вернуться на референтную точку
+            break;
         case 30:    // G30 - Поднятие по оси Z на точку смены инструмента
+            break;
         case 31:    // G31 - Подача до пропуска
+            if(!_testRunChecked){       // тестовый прогон программы gcode выключен
+                progParams.probe.point = __POINT_NULL;
+                progParams.probe.speed = getWorkSpeed();
+                progParams.probe.backOffset = probeZOffset;
+                for(uint8_t i=0; i<frameLength; i++){
+                    FrameSubData *el = frame+i;
+                    switch(el->letter){
+                        case GCODE_LETTER_F:        // задание скорости перемещения, mm/min
+                            progParams.probe.speed = el->value/60;
+                            break;
+                        case GCODE_LETTER_X:
+                            progParams.probe.point.x = el->value;
+                            break;
+                        case GCODE_LETTER_Y:
+                            progParams.probe.point.y = el->value;
+                            break;
+                        case GCODE_LETTER_Z:
+                            progParams.probe.point.z = el->value;
+                            break;
+                        case GCODE_LETTER_A:
+                            progParams.probe.point.a = el->value;
+                            break;
+                        case GCODE_LETTER_B:
+                            progParams.probe.point.b = el->value;
+                            break;
+                        case GCODE_LETTER_C:
+                            progParams.probe.point.c = el->value;
+                            break;
+                        case GCODE_LETTER_L:
+                            progParams.probe.backOffset = el->value;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            processThisCommand = false;
+            break;
         case 40:    // G40 - Отмена компенсации радиуса инструмента
             progParams.compensationRadius.side = GCodeCR::COMPENSATION_NONE;
             progParams.compensationRadius.value = 0.0;
@@ -747,18 +798,14 @@ bool GCode::processCommand_G(uint8_t value, FrameSubData *frame, uint8_t frameLe
 bool GCode::processCommand_M(uint8_t value, FrameSubData *frame, uint8_t frameLength){
     bool processThisCommand = true;
     switch(value){
-        case 1:     // M01 - включить плазму (постпроцессор asketcnc_plasma)
         case 3:     // M03 - включить плазму
-        case 7:     // M07 - включить плазму
             if(!_testRunChecked){       // тестовый прогон программы gcode выключен
                 if(_plasma != NULL){
                     progParams.plasmaArc = Plasma::PLASMA_ARC_START;
                 }
             }
             break;
-        case 2:     // M02 - выключить плазму (постпроцессор asketcnc_plasma)
         case 5:     // M05 - выключить плазму
-        case 8:     // M08 - выключить плазму
             if(!_testRunChecked){       // тестовый прогон программы gcode выключен
                 if(_plasma != NULL){
                     progParams.plasmaArc = Plasma::PLASMA_ARC_STOP;
@@ -845,11 +892,16 @@ bool GCode::isCircleInterpolation(ProgParams *pParams){
 /**
  * Выполнение команд GCode не связанных с перемещением
  */
-void GCode::processProgParams(ProgParams *pParams){
+void GCode::processProgParams(ProgParams *pParams, Geometry::Point *currentCoord, Geometry::Point *targetCoord, Geometry::Point *nextCoord){
 
     if(pParams->pause > 0.0){
         // пауза выполнения программы
         actionPause(pParams->pause);
+    }
+
+    if(pParams->probe.speed != 0.0){
+        // нахождение поверхности
+        actionProbe(&pParams->probe, currentCoord, targetCoord, nextCoord);
     }
 
     if(pParams->plasmaArc == Plasma::PLASMA_ARC_START){             // запуск плазмы
@@ -902,11 +954,67 @@ void GCode::actionPauseFinish(void *arg){
 }
 
 /**
+ * Подача до пропуска
+ * @param probe параметры подачи
+ * @param currentCoord текущие координаты
+ */
+void GCode::actionProbe(Probe *probe, Geometry::Point *currentCoord, Geometry::Point *targetCoord, Geometry::Point *nextCoord){
+    ESP_LOGI(TAG, "Probe start");
+    // опускание вниз по Z
+    Geometry::Point targetPoint;
+    memcpy(&targetPoint, targetCoord, sizeof(Geometry::Point));
+    float targetZ = probe->point.z;
+    bool moveIsDown = true;
+    if(targetZ > 0){
+        Geometry::Point userZero = _coordSystem->getUserZero();
+        targetZ += userZero.z;
+        moveIsDown = false;
+    }
+    targetPoint.z = targetZ;
+    actionIsProbe = true;
+    ActionMove::gotoPoint(&targetPoint, probe->speed, true);
+    actionIsProbe = false;
+
+    // получение текущей точки по оси z
+    float z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
+
+    ESP_LOGI(TAG, "Probe stop z: %f", z);
+
+    if(moveIsDown){
+        // поднятие вверх по Z на величину отскока
+        // targetPoint.z = z + probeZOffset;
+        targetPoint.z = z + probe->backOffset;
+        ActionMove::gotoPoint(&targetPoint, probe->speed, true);
+        z = Axe::getStepDriver(Axe::AXE_Z)->getPositionMM();
+    }
+
+    ESP_LOGI(TAG, "New probe  z: %f", z);
+    currentCoord->z = z;
+    targetCoord->z = z;
+    if(nextCoord != NULL) nextCoord->z = z;
+
+    // установка новой точки пользовательского нуля по оси z
+    Geometry::Point userZero = _coordSystem->getUserZero();
+    userZero.z = z;
+    userZero.log(TAG, "New userZero");
+    _coordSystem->setUserZero(&userZero);
+}
+
+/**
+ * Установка значения "отскока" при поиске поверхности
+ * @param offset смещение, мм
+ */
+void GCode::setProbeZOffset(float offset){
+    probeZOffset = offset;
+}
+
+/**
  * установка скорости быстрого перемещения
  * @param speed скорость
  */
 void GCode::setFastSpeed(float speed){
     _fastSpeed = speed;
+    _fastSpeedModal = speed;
 }
 
 /**
@@ -922,6 +1030,7 @@ float GCode::getFastSpeed(){
  */
 void GCode::setWorkSpeed(float speed){
     _workSpeed = speed;
+    _workSpeedModal = speed;
 }
 
 /**
@@ -953,6 +1062,32 @@ void GCode::setNotifyFinishFunc(NotifyFinishFunc func){
  */
 void GCode::setCoordSystem(CoordSystem *system){
     _coordSystem = system;
+}
+
+/**
+ * Событие прерывания от входов группы 0
+ * @param type тип ввода
+ * @param value значение уровня
+ */
+void GCode::input0Event(InputInterrupt::INPUT0 type, int level){
+
+    switch(type){
+        case InputInterrupt::INPUT0_LIMITS:
+            break;
+        case InputInterrupt::INPUT0_HOMES:
+            break;
+        case InputInterrupt::INPUT0_PROBE:
+            if(actionIsProbe && level == 0){
+                ActionMove::stop();
+            }
+            break;
+        case InputInterrupt::INPUT0_ESTOP:
+            break;
+
+        default:
+            break;
+    }
+
 }
 
 
